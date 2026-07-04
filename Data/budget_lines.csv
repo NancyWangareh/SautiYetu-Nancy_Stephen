@@ -1,0 +1,15 @@
+line_id,sector,subSector,description,amount_ksh,amount_requested_ksh,status,fiscal_year
+42-B,Health,Maternal Care,"Umoja Dispensary Expansion — maternity wing and maternal health services",5000000,5000000,matched,2025/26
+33-A,Health,Service Delivery,"Primary healthcare outreach in ward",2800000,2800000,matched,2025/26
+42-B,Health,Service Delivery,"Health facility upgrades",1200000,5000000,partial,2025/26
+09-A,Education,Early Childhood Development,"ECD Classroom Construction, Dandora Area II",3200000,3200000,matched,2025/26
+11-C,Education,Schools & Learning,"Primary school infrastructure improvement",1500000,1500000,matched,2025/26
+09-B,Education,Schools & Learning,"Learning materials procurement",900000,2500000,partial,2025/26
+21-D,Water & Sanitation,Water Supply,"Water pipeline extension",1800000,4000000,partial,2025/26
+19-A,Water & Sanitation,Water Supply,"Borehole drilling and sanitation facilities",3500000,3500000,matched,2025/26
+15-A,Infrastructure,Roads & Transport,"Road grading and murraming across selected wards",2000000,2000000,partial,2025/26
+14-C,Infrastructure,Roads & Transport,"Access road construction and culvert installation",6500000,6500000,matched,2025/26
+17-C,Agriculture,Livestock Health,"Ruai Cattle Dip — livestock health services",800000,2000000,partial,2025/26
+18-A,Agriculture,Crop Farming,"Agricultural extension and input subsidies",1200000,1200000,matched,2025/26
+28-A,Energy,Rural Electrification,"Rural electrification and solar streetlights",1500000,1500000,partial,2025/26
+55-B,Security,Community Safety,"Community policing and floodlights",600000,600000,partial,2025/26

@@ -1,0 +1,5 @@
+id,ward,channel,citizenInput,sector,subSector,budgetResult,status,submittedAt
+SUB-10241,Umoja I,SMS,"We need a maternity wing at the Umoja dispensary. Women are traveling too far to give birth.",Health,Maternal Care,"Enacted Budget Line 42-B: Ksh 5,000,000 allocated for Umoja Dispensary Expansion.",matched,2025-06-14
+SUB-10188,Ruai,USSD,"Our cattle keep falling sick. We requested a cattle dip near Ruai market to control ticks.",Agriculture,Livestock Health,"Enacted Budget Line 17-C: Ksh 800,000 allocated of the Ksh 2,000,000 requested for Ruai Cattle Dip.",partial,2025-06-09
+SUB-10156,Kayole North,Baraza,"The Kayole–Soweto access road is impassable when it rains. We asked for grading and murraming.",Infrastructure,Roads & Transport,"No matching line found in the enacted budget. Request was not carried into FY 2025/26.",ignored,2025-05-28
+SUB-10122,Dandora Area II,Web Form,"We need two more ECD classrooms at Dandora Primary. Toddlers are learning under a tree.",Education,Early Childhood Development,"Enacted Budget Line 09-A: Ksh 3,200,000 allocated for ECD Classroom Construction, Dandora Area II.",matched,2025-05-21

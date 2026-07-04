@@ -1,0 +1,11 @@
+sector,subSector,keywords
+Health,Maternal Care,"maternity | maternal | birth | pregnant | newborn"
+Health,Service Delivery,"dispensary | hospital | clinic | health | doctor | nurse | medicine | drugs"
+Education,Early Childhood Development,"ecd | toddler | kindergarten | nursery | pre-school | preschool"
+Education,Schools & Learning,"school | classroom | teacher | pupil | student | bursary | education | library"
+Infrastructure,Roads & Transport,"road | grading | murram | bridge | transport | tarmac | footpath | drainage"
+Water & Sanitation,Water Supply,"water | borehole | well | tap | sewer | sanitation | toilet | latrine"
+Agriculture,Livestock Health,"cattle | livestock | dip | tick | goat | cow | poultry | veterinary"
+Agriculture,Crop Farming,"farm | crop | seed | fertilizer | irrigation | harvest | maize"
+Energy,Rural Electrification,"electric | power | solar | streetlight | lighting | transformer"
+Security,Community Safety,"security | police | crime | chief | safety"

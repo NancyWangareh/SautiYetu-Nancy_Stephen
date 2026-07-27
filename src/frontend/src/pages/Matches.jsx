@@ -1,4 +1,14 @@
-import { MessageSquare, Sparkles, Landmark, ArrowRight } from "lucide-react";
+import { useState } from "react";
+import {
+  MessageSquare,
+  Sparkles,
+  Landmark,
+  ArrowRight,
+  Search,
+  Loader2,
+  FileText,
+  AlertCircle,
+} from "lucide-react";
 import { useBudgetMatches } from "../data/matches";
 
 /* ─── Status badge config ─── */
@@ -88,6 +98,48 @@ function MatchCard({ record }) {
 function Matches() {
   const matches = useBudgetMatches();
 
+  // ── Semantic search state ──────────────────────────────────────────
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [searchError, setSearchError] = useState("");
+  const [hasSearched, setHasSearched] = useState(false);
+
+  const handleSearch = async () => {
+    const query = searchQuery.trim();
+    if (!query) return;
+
+    setIsSearching(true);
+    setSearchError("");
+    setHasSearched(true);
+
+    try {
+      const res = await fetch("http://localhost:8000/api/search", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query, top_k: 5 }),
+      });
+
+      if (!res.ok) throw new Error(`Server error: ${res.status}`);
+
+      const data = await res.json();
+      setSearchResults(data.results || []);
+    } catch (err) {
+      setSearchError(
+        err.message === "Failed to fetch"
+          ? "Cannot reach the search backend. Make sure the server is running on port 8000."
+          : err.message
+      );
+      setSearchResults([]);
+    } finally {
+      setIsSearching(false);
+    }
+  };
+
+  const handleKeyDown = (e) => {
+    if (e.key === "Enter") handleSearch();
+  };
+
   return (
     <div className="mx-auto max-w-6xl space-y-6 px-4 py-8 sm:px-6">
       <div>
@@ -99,6 +151,107 @@ function Matches() {
         </p>
       </div>
 
+      {/* ── Semantic Search Bar ─────────────────────────────────── */}
+      <div className="rounded-xl border border-emerald-200 bg-gradient-to-br from-emerald-50/50 to-white p-5 shadow-sm">
+        <div className="mb-3 flex items-center gap-2">
+          <Search className="h-4 w-4 text-emerald-600" />
+          <h2 className="text-sm font-semibold text-slate-700">
+            Search the Enacted Budget
+          </h2>
+          <span className="hidden text-xs text-slate-400 sm:inline">
+            AI-powered semantic search across the full Nairobi County budget
+            document
+          </span>
+        </div>
+
+        <div className="flex gap-2">
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder='e.g. "maternity health budget", "road construction funds", "water supply allocation"'
+            className="flex-1 rounded-lg border border-slate-300 px-4 py-2.5 text-sm text-slate-700 placeholder:text-slate-400 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
+          />
+          <button
+            onClick={handleSearch}
+            disabled={isSearching || !searchQuery.trim()}
+            className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {isSearching ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Search className="h-4 w-4" />
+            )}
+            {isSearching ? "Searching..." : "Search"}
+          </button>
+        </div>
+
+        {/* ── Search Results ──────────────────────────────────── */}
+        {hasSearched && (
+          <div className="mt-4">
+            {isSearching && (
+              <div className="flex items-center justify-center py-8 text-slate-400">
+                <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                <span className="text-sm">Searching budget document...</span>
+              </div>
+            )}
+
+            {searchError && (
+              <div className="flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                <AlertCircle className="h-4 w-4 flex-shrink-0" />
+                {searchError}
+              </div>
+            )}
+
+            {!isSearching && !searchError && searchResults.length === 0 && (
+              <div className="flex flex-col items-center justify-center py-8 text-slate-400">
+                <FileText className="mb-2 h-8 w-8" />
+                <p className="text-sm font-medium">
+                  No matching budget lines found
+                </p>
+                <p className="mt-1 text-xs">
+                  Try a different search term related to county budget
+                  allocations.
+                </p>
+              </div>
+            )}
+
+            {!isSearching && !searchError && searchResults.length > 0 && (
+              <div className="space-y-3">
+                <p className="text-xs text-slate-500">
+                  Found {searchResults.length} result
+                  {searchResults.length !== 1 ? "s" : ""} &middot; Semantic
+                  search
+                </p>
+                {searchResults.map((result, idx) => (
+                  <div
+                    key={idx}
+                    className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm transition-shadow hover:shadow"
+                  >
+                    <div className="mb-2 flex items-center justify-between">
+                      <span className="inline-flex items-center gap-1 text-xs text-slate-500">
+                        <FileText className="h-3 w-3" />
+                        Page {result.page_number}
+                      </span>
+                      <span className="inline-flex items-center rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-medium text-emerald-700">
+                        {Math.round(result.score * 100)}% match
+                      </span>
+                    </div>
+                    <p className="text-sm leading-relaxed text-slate-700">
+                      {result.text.length > 350
+                        ? result.text.slice(0, 350) + "..."
+                        : result.text}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* ── Existing Budget Match Cards ─────────────────────────── */}
       {matches.length === 0 ? (
         <div className="flex flex-col items-center justify-center rounded-xl border border-slate-200 bg-white py-16 text-slate-400 shadow-sm">
           <span className="mb-3 text-4xl">🔗</span>

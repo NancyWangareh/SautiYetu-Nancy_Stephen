@@ -1,4 +1,4 @@
-import { MessageSquare, Sparkles, Landmark, ArrowRight } from "lucide-react";
+import { Loader2, AlertCircle, MessageSquare, Sparkles, Landmark, ArrowRight } from "lucide-react";
 import { useBudgetMatches } from "../data/matches";
 
 /* ─── Status badge config ─── */
@@ -85,34 +85,66 @@ function MatchCard({ record }) {
 }
 
 /* ─── Page component ─── */
+// Keep everything above MatchCard exactly as-is, then replace the Matches function:
+
 function Matches() {
-  const matches = useBudgetMatches();
+  const { matches, loading, error, refresh } = useBudgetMatches();
 
   return (
     <div className="mx-auto max-w-6xl space-y-6 px-4 py-8 sm:px-6">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight text-slate-800">
-          Budget Matches
-        </h1>
-        <p className="mt-1 text-sm text-slate-500">
-          Every citizen request mapped to its enacted budget outcome.
-        </p>
-      </div>
-
-      {matches.length === 0 ? (
-        <div className="flex flex-col items-center justify-center rounded-xl border border-slate-200 bg-white py-16 text-slate-400 shadow-sm">
-          <span className="mb-3 text-4xl">🔗</span>
-          <p className="text-sm font-medium">No budget matches yet</p>
-          <p className="mt-1 text-xs">
-            Submit citizen requests from the Input page to see budget matching.
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight text-slate-800">
+            Budget Matches
+          </h1>
+          <p className="mt-1 text-sm text-slate-500">
+            Every citizen request mapped to its enacted budget outcome.
           </p>
         </div>
-      ) : (
-        <div className="space-y-4">
-          {matches.map((record) => (
-            <MatchCard key={record.id} record={record} />
-          ))}
+        <button
+          onClick={refresh}
+          disabled={loading}
+          className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+        >
+          {loading ? "Refreshing..." : "↻ Refresh"}
+        </button>
+      </div>
+
+      {/* Loading */}
+      {loading && (
+        <div className="flex items-center justify-center py-16 text-slate-400">
+          <Loader2 className="h-6 w-6 animate-spin mr-2" />
+          <span className="text-sm">Loading matches from database...</span>
         </div>
+      )}
+
+      {/* Error */}
+      {error && (
+        <div className="flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          <AlertCircle className="h-4 w-4 text-red-500" />
+          {error}
+        </div>
+      )}
+
+      {/* Content */}
+      {!loading && !error && (
+        <>
+          {matches.length === 0 ? (
+            <div className="flex flex-col items-center justify-center rounded-xl border border-slate-200 bg-white py-16 text-slate-400 shadow-sm">
+              <span className="mb-3 text-4xl">🔗</span>
+              <p className="text-sm font-medium">No budget matches yet</p>
+              <p className="mt-1 text-xs">
+                Submit citizen requests from the Input page to see budget matching.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {matches.map((record) => (
+                <MatchCard key={record.id} record={record} />
+              ))}
+            </div>
+          )}
+        </>
       )}
     </div>
   );

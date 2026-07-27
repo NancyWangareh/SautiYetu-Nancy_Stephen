@@ -1,90 +1,100 @@
-import { useSyncExternalStore } from "react";
+import { useState, useEffect, useCallback } from "react";
+import { fetchSubmissions, fetchSubmission } from "./api";
 
-/* ─── Seed data ─── */
-const SEED = [
-  {
-    id: "SUB-10241",
-    ward: "Umoja I",
-    channel: "SMS",
-    citizenInput:
-      "We need a maternity wing at the Umoja dispensary. Women are traveling too far to give birth.",
-    sector: "Health",
-    subSector: "Maternal Care",
-    budgetResult:
-      "Enacted Budget Line 42-B: Ksh 5,000,000 allocated for Umoja Dispensary Expansion.",
-    status: "matched",
-    submittedAt: "2025-06-14",
-  },
-  {
-    id: "SUB-10188",
-    ward: "Ruai",
-    channel: "USSD",
-    citizenInput:
-      "Our cattle keep falling sick. We requested a cattle dip near Ruai market to control ticks.",
-    sector: "Agriculture",
-    subSector: "Livestock Health",
-    budgetResult:
-      "Enacted Budget Line 17-C: Ksh 800,000 allocated of the Ksh 2,000,000 requested for Ruai Cattle Dip.",
-    status: "partial",
-    submittedAt: "2025-06-09",
-  },
-  {
-    id: "SUB-10156",
-    ward: "Kayole North",
-    channel: "Baraza",
-    citizenInput:
-      "The Kayole–Soweto access road is impassable when it rains. We asked for grading and murraming.",
-    sector: "Infrastructure",
-    subSector: "Roads & Transport",
-    budgetResult:
-      "No matching line found in the enacted budget. Request was not carried into FY 2025/26.",
-    status: "ignored",
-    submittedAt: "2025-05-28",
-  },
-  {
-    id: "SUB-10122",
-    ward: "Dandora Area II",
-    channel: "Web Form",
-    citizenInput:
-      "We need two more ECD classrooms at Dandora Primary. Toddlers are learning under a tree.",
-    sector: "Education",
-    subSector: "Early Childhood Development",
-    budgetResult:
-      "Enacted Budget Line 09-A: Ksh 3,200,000 allocated for ECD Classroom Construction, Dandora Area II.",
-    status: "matched",
-    submittedAt: "2025-05-21",
-  },
-];
+// Cache for live-updating after a new submission
+let _submissions = [];
+const _listeners = new Set();
 
-/* ─── Store ─── */
-let records = [...SEED];
-const listeners = new Set();
-
-function emit() {
-  for (const fn of listeners) fn();
-}
-
-export function addSubmission(record) {
-  records = [record, ...records];
-  emit();
-}
-
-export function getSubmissionCount() {
-  return records.length;
-}
-
-function subscribe(cb) {
-  listeners.add(cb);
-  return () => listeners.delete(cb);
-}
-
-function getSnapshot() {
-  return records;
+function _notify(submissions) {
+  _submissions = submissions;
+  for (const fn of _listeners) fn();
 }
 
 /**
- * React hook — returns all submissions reactively.
+ * React hook — fetches all submissions from the backend API.
  */
-export function useSubmissions() {
-  return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+export function useSubmissions(params = {}) {
+  const [submissions, setSubmissions] = useState(_submissions);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await fetchSubmissions(params);
+      // Map API snake_case → frontend camelCase for backward compatibility
+      const mapped = data.submissions.map(_mapSubmission);
+      setSubmissions(mapped);
+      _notify(mapped);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }, [JSON.stringify(params)]);
+
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
+
+  // Also listen for push updates
+  useEffect(() => {
+    const fn = () => setSubmissions(_submissions);
+    _listeners.add(fn);
+    return () => _listeners.delete(fn);
+  }, []);
+
+  return { submissions, loading, error, refresh };
+}
+
+/**
+ * Get a single submission by ID.
+ */
+export function useSubmission(id) {
+  const [submission, setSubmission] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetchSubmission(id)
+      .then((data) => setSubmission(_mapSubmission(data)))
+      .catch(() => setSubmission(null))
+      .finally(() => setLoading(false));
+  }, [id]);
+
+  return { submission, loading };
+}
+
+/**
+ * Add a submission to the local cache (for instant UI update after POST).
+ */
+export function addSubmissionToCache(submission) {
+  _submissions = [_mapSubmission(submission), ..._submissions];
+  for (const fn of _listeners) fn();
+}
+
+/**
+ * Get the current count (from cache).
+ */
+export function getSubmissionCount() {
+  return _submissions.length;
+}
+
+// ── Helpers ──
+
+function _mapSubmission(s) {
+  return {
+    id: s.id,
+    ward: s.ward,
+    channel: s.channel,
+    citizenInput: s.citizen_input ?? s.citizenInput,
+    sector: s.sector,
+    subSector: s.sub_sector ?? s.subSector,
+    confidence: s.classification_confidence ?? s.confidence ?? 0,
+    budgetResult: s.budget_result ?? s.budgetResult,
+    status: s.status,
+    similarityScore: s.similarity_score ?? s.similarityScore,
+    submittedAt: s.submitted_at
+      ? s.submitted_at.slice(0, 10)
+      : s.submittedAt,
+  };
 }

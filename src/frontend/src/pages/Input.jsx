@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Loader2, Send, MessageSquarePlus, Sparkles, CheckCircle2, Mic, Paperclip } from "lucide-react";
+import { Loader2, Send, MessageSquarePlus, Sparkles, CheckCircle2, Paperclip } from "lucide-react";
 import { classifyInput, buildSubmission } from "../data/classify";
 import { addSubmission, getSubmissionCount } from "../data/store";
 
@@ -73,17 +73,8 @@ function Input({ onNavigate }) {
           className="w-full rounded-lg border border-slate-200 bg-white p-3 text-sm text-slate-800 placeholder-slate-400 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-200 disabled:opacity-50 resize-none"
         />
 
-        {/* ── Dummy attachment buttons ── */}
+        {/* ── Dummy attachment button ── */}
         <div className="mt-2 flex items-center gap-1">
-          <button
-            type="button"
-            disabled
-            title="Voice note — coming soon"
-            className="inline-flex items-center gap-1.5 rounded-lg border border-dashed border-slate-300 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-400 cursor-not-allowed transition-colors"
-          >
-            <Mic className="h-3.5 w-3.5" />
-            Voice Note
-          </button>
           <button
             type="button"
             disabled

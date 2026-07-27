@@ -111,9 +111,9 @@ class VectorStore:
 
         Returns list of { score, text, page_number, chunk_id, metadata }
         """
-        results = self.client.search(
+        results = self.client.query_points(
             collection_name=COLLECTION_NAME,
-            query_vector=query_embedding,
+            query=query_embedding,
             limit=top_k,
             score_threshold=score_threshold,
         )
@@ -126,5 +126,5 @@ class VectorStore:
                 "chunk_id": (hit.payload or {}).get("chunk_id", ""),
                 "metadata": (hit.payload or {}).get("metadata", {}),
             }
-            for hit in results
+            for hit in results.points
         ]

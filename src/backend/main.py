@@ -89,60 +89,72 @@ def classify_text(text: str) -> dict:
     }
 
 
-# ── Budget matching (against CSV budget lines) ───────────────────────────
+# ── Budget matching (semantic search against vector DB) ─────────────────
 
 def match_budget(sector: str, sub_sector: str, query_text: str) -> dict:
     """
-    Try to match a classified request against budget_lines.csv.
-    Falls back to semantic search if no CSV match is found.
-    Returns { budgetResult, status }.
+    Match a citizen request against the enacted budget PDF via semantic search.
+
+    Uses Qdrant vector store (1,474 chunks from the Nairobi County budget PDF).
+    Returns { budgetResult, status, source_page, confidence }.
     """
-    budget_lines = _read_csv(BUDGET_LINES_PATH)
-
-    # First: exact sector + subSector match in CSV
-    for line in budget_lines:
-        if line.get("sector") == sector and line.get("subSector") == sub_sector:
-            amount = int(line.get("amount_ksh", 0))
-            requested = int(line.get("amount_requested_ksh", 0))
-            status = line.get("status", "partial")
-            desc = line.get("description", "")
-            line_id = line.get("line_id", "")
-
-            if status == "matched":
-                return {
-                    "budgetResult": f"Enacted Budget Line {line_id}: Ksh {amount:,} allocated for {desc}.",
-                    "status": "matched",
-                }
-            elif status == "partial":
-                return {
-                    "budgetResult": f"Enacted Budget Line {line_id}: Ksh {amount:,} allocated of the Ksh {requested:,} requested for {desc}.",
-                    "status": "partial",
-                }
-            else:
-                return {
-                    "budgetResult": f"No matching line found in the enacted budget. Request was not carried into FY 2025/26.",
-                    "status": "ignored",
-                }
-
-    # No CSV match — try semantic search against the PDF
     try:
         emb = get_embedder()
         vec = get_store()
-        if vec.collection_exists():
-            q_emb = emb.embed_query(query_text)
-            hits = vec.search(q_emb, top_k=1)
-            if hits:
-                return {
-                    "budgetResult": f"Semantic match (page {hits[0].get('page_number', '?')}): {hits[0].get('text', '')[:200]}",
-                    "status": "partial",
-                }
-    except Exception:
-        pass
 
-    return {
-        "budgetResult": "No matching line found yet in the enacted budget. This request is not yet funded.",
-        "status": "ignored",
-    }
+        if not vec.collection_exists():
+            return {
+                "budgetResult": "Budget document index not yet available. Please ingest the PDF first.",
+                "status": "ignored",
+                "source_page": None,
+                "confidence": 0,
+            }
+
+        # Search with the citizen's original text for best semantic match
+        q_emb = emb.embed_query(query_text)
+        hits = vec.search(q_emb, top_k=3)
+
+        if not hits:
+            return {
+                "budgetResult": "No matching budget provision found in the enacted Nairobi County budget.",
+                "status": "ignored",
+                "source_page": None,
+                "confidence": 0,
+            }
+
+        top = hits[0]
+        score = top.get("score", 0)
+        page = top.get("page_number", "?")
+        text = top.get("text", "")
+
+        # Clean up the text excerpt for display
+        excerpt = text.strip()[:250]
+
+        # Score thresholds for status
+        if score >= 0.80:
+            status = "matched"
+            status_label = "Found"
+        elif score >= 0.70:
+            status = "partial"
+            status_label = "Partial match"
+        else:
+            status = "ignored"
+            status_label = "Weak match"
+
+        return {
+            "budgetResult": f"[{status_label} · p.{page} · {score:.0%}] {excerpt}",
+            "status": status,
+            "source_page": page,
+            "confidence": round(score, 3),
+        }
+
+    except Exception as e:
+        return {
+            "budgetResult": f"Budget search unavailable ({str(e)[:100]}). Request stored for review.",
+            "status": "ignored",
+            "source_page": None,
+            "confidence": 0,
+        }
 
 
 # ── FastAPI app ──────────────────────────────────────────────────────────

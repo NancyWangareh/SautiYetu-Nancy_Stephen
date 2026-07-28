@@ -58,7 +58,7 @@ function App() {
             }`}
           >
             <MessageSquarePlus size={18} />
-            Simulate Input
+            Citizen Input
           </button>
 
           <button

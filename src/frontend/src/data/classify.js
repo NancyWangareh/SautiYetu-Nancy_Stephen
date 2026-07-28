@@ -1,99 +1,60 @@
-/* ─── Ordered keyword rules — first match with most hits wins ─── */
-const RULES = [
-  {
-    sector: "Health",
-    subSector: "Maternal Care",
-    keywords: ["maternity", "maternal", "birth", "pregnan", "newborn"],
-  },
-  {
-    sector: "Health",
-    subSector: "Service Delivery",
-    keywords: ["dispensary", "hospital", "clinic", "health", "doctor", "nurse", "medicine", "drugs"],
-  },
-  {
-    sector: "Education",
-    subSector: "Early Childhood Development",
-    keywords: ["ecd", "toddler", "kindergarten", "nursery", "pre-school", "preschool"],
-  },
-  {
-    sector: "Education",
-    subSector: "Schools & Learning",
-    keywords: ["school", "classroom", "teacher", "pupil", "student", "bursary", "education", "library"],
-  },
-  {
-    sector: "Infrastructure",
-    subSector: "Roads & Transport",
-    keywords: ["road", "grading", "murram", "bridge", "transport", "tarmac", "footpath", "drainage"],
-  },
-  {
-    sector: "Water & Sanitation",
-    subSector: "Water Supply",
-    keywords: ["water", "borehole", "well", "tap", "sewer", "sanitation", "toilet", "latrine"],
-  },
-  {
-    sector: "Agriculture",
-    subSector: "Livestock Health",
-    keywords: ["cattle", "livestock", "dip", "tick", "goat", "cow", "poultry", "veterinary"],
-  },
-  {
-    sector: "Agriculture",
-    subSector: "Crop Farming",
-    keywords: ["farm", "crop", "seed", "fertiliz", "irrigation", "harvest", "maize"],
-  },
-  {
-    sector: "Energy",
-    subSector: "Rural Electrification",
-    keywords: ["electric", "power", "solar", "streetlight", "lighting", "transformer"],
-  },
-  {
-    sector: "Security",
-    subSector: "Community Safety",
-    keywords: ["security", "police", "crime", "chief", "safety"],
-  },
-];
+const API_BASE = "http://localhost:8000";
 
 /**
- * Classify citizen input text. Uses hits-based scoring — the rule
- * with the most keyword matches wins. Returns sector, subSector, and confidence.
+ * Classify citizen input text using the backend API.
+ * Falls back to a simple local guess if the backend is unreachable.
  */
-export function classifyInput(text) {
-  const lower = text.toLowerCase();
-  let best = null; // { rule, hits }
-
-  for (const rule of RULES) {
-    const hits = rule.keywords.reduce((n, kw) => (lower.includes(kw) ? n + 1 : n), 0);
-    if (hits > 0 && (!best || hits > best.hits)) {
-      best = { rule, hits };
+export async function classifyInput(text) {
+  try {
+    const res = await fetch(`${API_BASE}/api/classify`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text }),
+    });
+    if (res.ok) {
+      return await res.json();
     }
+  } catch (err) {
+    console.warn("Classification API unavailable, using fallback:", err.message);
   }
 
-  if (!best) {
-    return { sector: "Uncategorized", subSector: "Needs Review", confidence: 0 };
-  }
+  // Fallback classification if API is down
+  return fallbackClassify(text);
+}
 
-  return {
-    sector: best.rule.sector,
-    subSector: best.rule.subSector,
-    confidence: Math.min(0.98, 0.6 + best.hits * 0.15),
-  };
+/** Simple local fallback — tries to guess sector from keywords */
+function fallbackClassify(text) {
+  const lower = text.toLowerCase();
+  if (/maternity|maternal|birth|pregnan|newborn|dispensary|hospital|clinic|health|doctor|nurse/.test(lower))
+    return { sector: "Health", subSector: "Service Delivery", confidence: 0.7 };
+  if (/school|classroom|teacher|pupil|student|bursary|education|ecd|toddler/.test(lower))
+    return { sector: "Education", subSector: "Schools & Learning", confidence: 0.7 };
+  if (/road|grading|murram|bridge|transport|tarmac/.test(lower))
+    return { sector: "Infrastructure", subSector: "Roads & Transport", confidence: 0.7 };
+  if (/water|borehole|well|tap|sewer|sanitation|toilet/.test(lower))
+    return { sector: "Water & Sanitation", subSector: "Water Supply", confidence: 0.7 };
+  if (/cattle|livestock|dip|tick|goat|cow|farm|crop|seed|fertiliz/.test(lower))
+    return { sector: "Agriculture", subSector: "Livestock Health", confidence: 0.7 };
+  if (/electric|power|solar|streetlight|lighting/.test(lower))
+    return { sector: "Energy", subSector: "Rural Electrification", confidence: 0.7 };
+  if (/security|police|crime|chief|safety/.test(lower))
+    return { sector: "Security", subSector: "Community Safety", confidence: 0.7 };
+  return { sector: "Uncategorized", subSector: "Needs Review", confidence: 0 };
 }
 
 /**
- * Build a full submission record. New submissions always start as
- * "Web Form" from "Umoja I", with "ignored" status until budget-matched.
+ * Build a full submission record (used as fallback if offline).
+ * Prefer submitToBackend() from store.js for normal use.
  */
 export function buildSubmission(rawInput, existingCount) {
-  const { sector, subSector, confidence } = classifyInput(rawInput);
   return {
-    id: `SUB-${10300 + existingCount}`,
+    id: `SUB-${10300 + existingCount + 1}`,
     ward: "Umoja I",
     channel: "Web Form",
     citizenInput: rawInput.trim(),
-    sector,
-    subSector,
-    confidence,
-    budgetResult:
-      "No matching line found yet in the enacted budget. This request is not yet funded.",
+    sector: "Uncategorized",
+    subSector: "Needs Review",
+    budgetResult: "Pending budget match via backend...",
     status: "ignored",
     submittedAt: new Date().toISOString().slice(0, 10),
   };

@@ -17,13 +17,13 @@ function App() {
   const renderView = () => {
     switch (activeView) {
       case 'input':
-        return <Input />;
+        return <Input onNavigate={setActiveView} />;
       case 'matches':
         return <Matches />;
       case 'submissions':
         return <Submissions />;
       default:
-        return <Input />;
+        return <Input onNavigate={setActiveView} />;
     }
   }
 

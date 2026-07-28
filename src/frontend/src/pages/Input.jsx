@@ -1,39 +1,82 @@
-import { useState } from "react";
-import { Loader2, Send, MessageSquarePlus, Sparkles, CheckCircle2, Paperclip } from "lucide-react";
-import { classifyInput, buildSubmission } from "../data/classify";
-import { addSubmission, getSubmissionCount } from "../data/store";
+import { useState, useEffect, useRef } from "react";
+import { Loader2, Send, MessageSquarePlus, Sparkles, CheckCircle2, Paperclip, AlertCircle } from "lucide-react";
+import { classifyInput } from "../data/classify";
+import { submitToBackend } from "../data/store";
 
 function Input({ onNavigate }) {
   const [input, setInput] = useState("");
   const [processing, setProcessing] = useState(false);
   const [toast, setToast] = useState(null);
+  const [preview, setPreview] = useState(null);
+  const [classifying, setClassifying] = useState(false);
+  const [error, setError] = useState("");
+  const debounceRef = useRef(null);
 
-  const preview = input.trim() ? classifyInput(input) : null;
+  // Debounced classification preview (runs 500ms after user stops typing)
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
 
-  function showToast(message) {
-    setToast({ message, visible: true });
-    setTimeout(() => setToast({ message, visible: false }), 3000);
+    const text = input.trim();
+    if (!text) {
+      setPreview(null);
+      return;
+    }
+
+    setClassifying(true);
+    debounceRef.current = setTimeout(async () => {
+      try {
+        const result = await classifyInput(text);
+        setPreview(result);
+      } catch {
+        setPreview(null);
+      } finally {
+        setClassifying(false);
+      }
+    }, 500);
+
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, [input]);
+
+  function showToast(message, isError = false) {
+    setToast({ message, isError, visible: true });
+    setTimeout(() => setToast({ message: "", visible: false }), 4000);
   }
 
-  function handleSubmit() {
+  async function handleSubmit() {
     if (!input.trim() || processing) return;
     setProcessing(true);
-    const raw = input.trim();
-    setTimeout(() => {
-      addSubmission(buildSubmission(raw, getSubmissionCount()));
+    setError("");
+
+    try {
+      await submitToBackend(input.trim());
       setInput("");
+      setPreview(null);
+      showToast("Submitted! Classified and matched against the enacted budget.");
+      setTimeout(() => onNavigate("submissions"), 800);
+    } catch (err) {
+      setError(err.message);
+      showToast(err.message, true);
+    } finally {
       setProcessing(false);
-      showToast("Your input was sent successfully!");
-      onNavigate("submissions");
-    }, 1500);
+    }
   }
 
   return (
     <div className="relative mx-auto max-w-2xl px-4 py-8 sm:px-6">
       {/* ── Toast ── */}
       {toast?.visible && (
-        <div className="fixed top-6 right-6 z-50 flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800 shadow-lg">
-          <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+        <div className={`fixed top-6 right-6 z-50 flex items-center gap-2 rounded-lg border px-4 py-3 text-sm font-medium shadow-lg ${
+          toast.isError
+            ? "border-red-200 bg-red-50 text-red-800"
+            : "border-emerald-200 bg-emerald-50 text-emerald-800"
+        }`}>
+          {toast.isError ? (
+            <AlertCircle className="h-4 w-4 text-red-600" />
+          ) : (
+            <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+          )}
           {toast.message}
         </div>
       )}
@@ -87,23 +130,36 @@ function Input({ onNavigate }) {
         </div>
 
         {/* Classification preview */}
-        {preview && (
+        {(preview || classifying) && (
           <div className="mt-3 flex flex-wrap items-center gap-1.5">
             <Sparkles className="h-3.5 w-3.5 text-emerald-600" />
             <span className="text-xs text-slate-500">
               Predicted classification:
             </span>
-            <span className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-0.5 text-xs font-medium text-emerald-700">
-              {preview.sector}
-            </span>
-            <span className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-0.5 text-xs font-medium text-emerald-700">
-              {preview.subSector}
-            </span>
-            {preview.confidence > 0 && (
-              <span className="text-xs text-slate-400">
-                ({Math.round(preview.confidence * 100)}% confidence)
-              </span>
+            {classifying ? (
+              <span className="text-xs text-slate-400 italic">analyzing...</span>
+            ) : (
+              <>
+                <span className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-0.5 text-xs font-medium text-emerald-700">
+                  {preview.sector}
+                </span>
+                <span className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-0.5 text-xs font-medium text-emerald-700">
+                  {preview.subSector}
+                </span>
+                {preview.confidence > 0 && (
+                  <span className="text-xs text-slate-400">
+                    ({Math.round(preview.confidence * 100)}% confidence)
+                  </span>
+                )}
+              </>
             )}
+          </div>
+        )}
+
+        {error && (
+          <div className="mt-3 flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+            <AlertCircle className="h-4 w-4 flex-shrink-0" />
+            {error}
           </div>
         )}
 
@@ -115,7 +171,7 @@ function Input({ onNavigate }) {
           {processing ? (
             <>
               <Loader2 className="h-4 w-4 animate-spin" />
-              Stripping PII & classifying...
+              Classifying & matching budget...
             </>
           ) : (
             <>

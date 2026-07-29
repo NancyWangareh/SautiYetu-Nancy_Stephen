@@ -90,6 +90,7 @@ def classify_text(text: str) -> dict:
 
 
 # ── Budget matching (semantic search against vector DB) ─────────────────
+<<<<<<< HEAD
 
 def _clean_budget_text(text: str) -> str:
     """
@@ -100,10 +101,17 @@ def _clean_budget_text(text: str) -> str:
     cleaned = re.sub(r"\s+", " ", text).strip()
     return cleaned
 
+=======
+>>>>>>> 49a3f42739e9d47cb6cfb6133f7ab2dd9a65f243
 
 def match_budget(sector: str, sub_sector: str, query_text: str) -> dict:
     """
     Match a citizen request against the enacted budget PDF via semantic search.
+<<<<<<< HEAD
+=======
+
+    Uses Qdrant vector store (1,474 chunks from the Nairobi County budget PDF).
+>>>>>>> 49a3f42739e9d47cb6cfb6133f7ab2dd9a65f243
     Returns { budgetResult, status, source_page, confidence }.
     """
     try:
@@ -112,18 +120,30 @@ def match_budget(sector: str, sub_sector: str, query_text: str) -> dict:
 
         if not vec.collection_exists():
             return {
+<<<<<<< HEAD
                 "budgetResult": "Budget index unavailable. Ingest the PDF first.",
+=======
+                "budgetResult": "Budget document index not yet available. Please ingest the PDF first.",
+>>>>>>> 49a3f42739e9d47cb6cfb6133f7ab2dd9a65f243
                 "status": "ignored",
                 "source_page": None,
                 "confidence": 0,
             }
 
+<<<<<<< HEAD
+=======
+        # Search with the citizen's original text for best semantic match
+>>>>>>> 49a3f42739e9d47cb6cfb6133f7ab2dd9a65f243
         q_emb = emb.embed_query(query_text)
         hits = vec.search(q_emb, top_k=3)
 
         if not hits:
             return {
+<<<<<<< HEAD
                 "budgetResult": "No matching budget provision found.",
+=======
+                "budgetResult": "No matching budget provision found in the enacted Nairobi County budget.",
+>>>>>>> 49a3f42739e9d47cb6cfb6133f7ab2dd9a65f243
                 "status": "ignored",
                 "source_page": None,
                 "confidence": 0,
@@ -134,6 +154,7 @@ def match_budget(sector: str, sub_sector: str, query_text: str) -> dict:
         page = top.get("page_number", "?")
         text = top.get("text", "")
 
+<<<<<<< HEAD
         # Clean and simplify for citizen display
         summary = _clean_budget_text(text)
 
@@ -146,6 +167,24 @@ def match_budget(sector: str, sub_sector: str, query_text: str) -> dict:
 
         return {
             "budgetResult": f"p.{page} ({score:.0%} match): {summary}",
+=======
+        # Clean up the text excerpt for display
+        excerpt = text.strip()[:250]
+
+        # Score thresholds for status
+        if score >= 0.80:
+            status = "matched"
+            status_label = "Found"
+        elif score >= 0.70:
+            status = "partial"
+            status_label = "Partial match"
+        else:
+            status = "ignored"
+            status_label = "Weak match"
+
+        return {
+            "budgetResult": f"[{status_label} · p.{page} · {score:.0%}] {excerpt}",
+>>>>>>> 49a3f42739e9d47cb6cfb6133f7ab2dd9a65f243
             "status": status,
             "source_page": page,
             "confidence": round(score, 3),
@@ -153,7 +192,11 @@ def match_budget(sector: str, sub_sector: str, query_text: str) -> dict:
 
     except Exception as e:
         return {
+<<<<<<< HEAD
             "budgetResult": f"Budget search unavailable. Request stored for review.",
+=======
+            "budgetResult": f"Budget search unavailable ({str(e)[:100]}). Request stored for review.",
+>>>>>>> 49a3f42739e9d47cb6cfb6133f7ab2dd9a65f243
             "status": "ignored",
             "source_page": None,
             "confidence": 0,

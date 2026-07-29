@@ -7,6 +7,7 @@ SUB-10305,Umoja I,Web Form,We need a maternity wing at the Umoja dispensary,Heal
 SUB-10306,Umoja I,Web Form,We need clean water and boreholes in Kariobangi North. The current supply is unreliable.l,Water & Sanitation,Water Supply,"Enacted Budget Line 21-D: Ksh 1,800,000 allocated of the Ksh 4,000,000 requested for Water pipeline extension.",partial,2026-07-28
 SUB-10307,Umoja I,Web Form,"Proper roads at junction mall, Ngong Road",Infrastructure,Roads & Transport,"Enacted Budget Line 15-A: Ksh 2,000,000 allocated of the Ksh 2,000,000 requested for Road grading and murraming across selected wards.",partial,2026-07-28
 SUB-10308,Umoja I,Web Form,Pumwani maternity expansion,Health,Maternal Care,"Enacted Budget Line 42-B: Ksh 5,000,000 allocated for Umoja Dispensary Expansion — maternity wing and maternal health services.",matched,2026-07-28
+<<<<<<< HEAD
 SUB-10309,Dandora Area I,Web Form,ECDE Classroom expansion.,Education,Early Childhood Development,p.143 (87% match):  Improved the Teacher Pupil Ratio to 1:26 through employment of 498No.,matched,2026-07-28
 SUB-10310,Kayole North,Web Form,Expansion of ECDE classrooms,Education,Early Childhood Development,"p.231 (87% match): construction of a new ECDE centre - Dandora Day Education Dandora Ward. KShs 12,960,929 · KShs 14,018,229.",matched,2026-07-28
 SUB-10311,Dandora Area II,Web Form,Security enforcement,Security,Community Safety,p.5 (84% match): KShs 0724015310 · KShs 5329001600.,matched,2026-07-28
@@ -14,3 +15,18 @@ SUB-10312,Kariobangi South,Web Form,Road expansion,Infrastructure,Roads & Transp
 SUB-10313,Dandora Area III,Web Form,We need better drainage and road repairs in Dandora Area III. The roads flood every rainy season.,Infrastructure,Roads & Transport,"p.139 (82% match): KShs 10,200.",matched,2026-07-29
 SUB-10314,Mihango,Web Form,Build a new classroom block at Mihango Primary School,Education,Schools & Learning,"p.231 (85% match): 277 construction of Skyway ECDE Center – Mihango Education Mihango 18,876,371 18,876,371 0 278 Construction of ECD Centre- Eastleigh South Ward Education Eastleigh South 18,876,371 18,876,371 0 Construction of Kiboro Primary Perimeter wall in Mlango 279 Education Mlango Kubwa 6,414,000 6,414,000 3,207,000 Kubwa 280 Proposed construction of a new ECDE centre Mwiki ECDE Education Mwiki ward 12,960,929 12,960,929 0",matched,2026-07-29
 SUB-10315,Dandora Area III,Web Form,“We need better drainage and road repairs in Dandora Area III. The roads flood every rainy season.,Infrastructure,Roads & Transport,"p.139 (82% match): In the 2024/2025 and the medium term, the sector plans to achieve the following;  Construct 110 km of storm water drainage  Pave 45km of roads  Gravel 30km of earth roads  Construct 35kms of walkways  Install 15No. Of traffic signals  Construct 15No. of footbridges  Install 10,200 No. of street lights  Construct 10No. of motoable bridges  Construct 5No. of box culverts  Develop 2Kms of common service ducts PART D Programmes & Strategic Objectives",matched,2026-07-29
+=======
+SUB-10309,Dandora Area II,Web Form,We need more streetlights along the main road in Dandora. It is too dark at night.,Infrastructure,Roads & Transport,"Enacted Budget Line 15-A: Ksh 2,000,000 allocated of the Ksh 2,000,000 requested for Road grading and murraming across selected wards.",partial,2026-07-28
+SUB-10310,Kayole North,SMS,The Kayole North Primary School needs 3 new classrooms. Currently children are squeezed 80 per class.,Education,Schools & Learning,"Enacted Budget Line 11-C: Ksh 1,500,000 allocated for Primary school infrastructure improvement.",matched,2026-07-28
+SUB-10311,Kayole North,Web Form,The Kayole North Primary School needs 3 new classrooms. Currently children are squeezed 80 per class.,Education,Schools & Learning,"Enacted Budget Line 11-C: Ksh 1,500,000 allocated for Primary school infrastructure improvement.",matched,2026-07-28
+SUB-10312,Umoja I,Web Form,We need a maternity wing at the Umoja dispensary. Women are traveling too far to give birth.,Health,Maternal Care,"[Found · p.226 · 82%] 105 construction of level II hospital- Utalii Ward 5332001600 Health centres & dispensaries Utalii 28,314,238 28,314,238 0
+106 completion of Umoja 1 Health Centre – Umoja I Ward 5332001600 Health centres & dispensaries Umoja 1 30,000,000 29,895,995 0",matched,2026-07-28
+SUB-10313,Umoja I,Web Form,Farmers in Njiru need a cattle dip to control ticks and livestock diseases. Many animals have died this season.,Agriculture,Livestock Health,"[Found · p.39 · 83%] Development
+Increased knowledge and Number of farmers trained 4000 5731 4500 4500 5000 5500
+skills of farmers No. of demonstration plots 35 38 42 42 42 42
+established in NITF
+0116005310 Reduced prevalence of Number of animals vaccinated() 3,275 3,000",matched,2026-07-28
+SUB-10314,Kariobangi North,Web Form,Expansion Of ECDE schools,Education,Early Childhood Development,"[Found · p.231 · 88%] 281 Proposed construction of a new ECDE centre - Dandora Day Education Dandora Ward 12,960,929 12,960,929 0
+282 Completion of a new ECD – Kawangware Primary Education Kawangware 14,018,229 14,018,229 0
+283 Completion of a new ECD – Starehe Day Nurser",matched,2026-07-28
+>>>>>>> 49a3f42739e9d47cb6cfb6133f7ab2dd9a65f243

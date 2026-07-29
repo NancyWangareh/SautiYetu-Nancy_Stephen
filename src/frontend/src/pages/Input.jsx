@@ -1,5 +1,9 @@
 import { useState, useEffect, useRef } from "react";
+<<<<<<< HEAD
 import { Loader2, Send, MessageSquarePlus, Sparkles, CheckCircle2, AlertCircle, MapPin, Radio } from "lucide-react";
+=======
+import { Loader2, Send, MessageSquarePlus, Sparkles, CheckCircle2, Paperclip, AlertCircle, MapPin, Radio } from "lucide-react";
+>>>>>>> 49a3f42739e9d47cb6cfb6133f7ab2dd9a65f243
 import { classifyInput } from "../data/classify";
 import { submitToBackend, useWards } from "../data/store";
 
@@ -164,6 +168,22 @@ function Input({ onNavigate }) {
               ))}
             </select>
           </div>
+<<<<<<< HEAD
+=======
+        </div>
+
+        {/* ── Dummy attachment button ── */}
+        <div className="mt-2 flex items-center gap-1">
+          <button
+            type="button"
+            disabled
+            title="Photo upload — coming soon"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-dashed border-slate-300 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-400 cursor-not-allowed transition-colors"
+          >
+            <Paperclip className="h-3.5 w-3.5" />
+            Attach Photo
+          </button>
+>>>>>>> 49a3f42739e9d47cb6cfb6133f7ab2dd9a65f243
         </div>
 
         {/* Classification preview */}

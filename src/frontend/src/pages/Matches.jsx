@@ -238,10 +238,8 @@ function Matches() {
                         {Math.round(result.score * 100)}% match
                       </span>
                     </div>
-                    <p className="text-sm leading-relaxed text-slate-700">
-                      {result.text.length > 350
-                        ? result.text.slice(0, 350) + "..."
-                        : result.text}
+                    <p className="text-sm leading-relaxed text-slate-700 whitespace-pre-line">
+                      {result.text}
                     </p>
                   </div>
                 ))}

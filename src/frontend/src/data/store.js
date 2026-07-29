@@ -2,7 +2,7 @@ import { useSyncExternalStore } from "react";
 
 const API_BASE = "http://localhost:8000";
 
-/* ─── Store ─── */
+/* ─── Submissions Store ─── */
 let records = [];
 let loaded = false;
 let loading = false;
@@ -25,7 +25,6 @@ export async function fetchSubmissions() {
     }
   } catch (err) {
     console.warn("Failed to load submissions from API:", err.message);
-    // Keep whatever records we had
   } finally {
     loading = false;
     emit();
@@ -64,17 +63,50 @@ function getSnapshot() {
   return records;
 }
 
-/**
- * React hook — returns all submissions reactively.
- * Auto-fetches from the backend on first use.
- */
 export function useSubmissions() {
   const data = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
-
-  // Trigger fetch on first mount
   if (!loaded && !loading) {
     fetchSubmissions();
   }
+  return data;
+}
 
+/* ─── Wards Store ─── */
+let wards = [];
+let wardsLoaded = false;
+const wardListeners = new Set();
+
+function wardEmit() {
+  for (const fn of wardListeners) fn();
+}
+
+export async function fetchWards() {
+  if (wardsLoaded) return;
+  try {
+    const res = await fetch(`${API_BASE}/api/wards`);
+    if (res.ok) {
+      wards = await res.json();
+      wardsLoaded = true;
+    }
+  } catch (err) {
+    console.warn("Failed to load wards from API:", err.message);
+  }
+  wardEmit();
+}
+
+function wardsSubscribe(cb) {
+  wardListeners.add(cb);
+  return () => wardListeners.delete(cb);
+}
+
+function wardsGetSnapshot() {
+  return wards;
+}
+
+export function useWards() {
+  const data = useSyncExternalStore(wardsSubscribe, wardsGetSnapshot, wardsGetSnapshot);
+  if (!wardsLoaded) {
+    fetchWards();
+  }
   return data;
 }

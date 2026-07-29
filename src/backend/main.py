@@ -89,60 +89,75 @@ def classify_text(text: str) -> dict:
     }
 
 
-# ── Budget matching (against CSV budget lines) ───────────────────────────
+# ── Budget matching (semantic search against vector DB) ─────────────────
+
+def _clean_budget_text(text: str) -> str:
+    """
+    Normalize whitespace only — preserves the full budget line text as-is.
+    """
+    import re
+
+    cleaned = re.sub(r"\s+", " ", text).strip()
+    return cleaned
+
 
 def match_budget(sector: str, sub_sector: str, query_text: str) -> dict:
     """
-    Try to match a classified request against budget_lines.csv.
-    Falls back to semantic search if no CSV match is found.
-    Returns { budgetResult, status }.
+    Match a citizen request against the enacted budget PDF via semantic search.
+    Returns { budgetResult, status, source_page, confidence }.
     """
-    budget_lines = _read_csv(BUDGET_LINES_PATH)
-
-    # First: exact sector + subSector match in CSV
-    for line in budget_lines:
-        if line.get("sector") == sector and line.get("subSector") == sub_sector:
-            amount = int(line.get("amount_ksh", 0))
-            requested = int(line.get("amount_requested_ksh", 0))
-            status = line.get("status", "partial")
-            desc = line.get("description", "")
-            line_id = line.get("line_id", "")
-
-            if status == "matched":
-                return {
-                    "budgetResult": f"Enacted Budget Line {line_id}: Ksh {amount:,} allocated for {desc}.",
-                    "status": "matched",
-                }
-            elif status == "partial":
-                return {
-                    "budgetResult": f"Enacted Budget Line {line_id}: Ksh {amount:,} allocated of the Ksh {requested:,} requested for {desc}.",
-                    "status": "partial",
-                }
-            else:
-                return {
-                    "budgetResult": f"No matching line found in the enacted budget. Request was not carried into FY 2025/26.",
-                    "status": "ignored",
-                }
-
-    # No CSV match — try semantic search against the PDF
     try:
         emb = get_embedder()
         vec = get_store()
-        if vec.collection_exists():
-            q_emb = emb.embed_query(query_text)
-            hits = vec.search(q_emb, top_k=1)
-            if hits:
-                return {
-                    "budgetResult": f"Semantic match (page {hits[0].get('page_number', '?')}): {hits[0].get('text', '')[:200]}",
-                    "status": "partial",
-                }
-    except Exception:
-        pass
 
-    return {
-        "budgetResult": "No matching line found yet in the enacted budget. This request is not yet funded.",
-        "status": "ignored",
-    }
+        if not vec.collection_exists():
+            return {
+                "budgetResult": "Budget index unavailable. Ingest the PDF first.",
+                "status": "ignored",
+                "source_page": None,
+                "confidence": 0,
+            }
+
+        q_emb = emb.embed_query(query_text)
+        hits = vec.search(q_emb, top_k=3)
+
+        if not hits:
+            return {
+                "budgetResult": "No matching budget provision found.",
+                "status": "ignored",
+                "source_page": None,
+                "confidence": 0,
+            }
+
+        top = hits[0]
+        score = top.get("score", 0)
+        page = top.get("page_number", "?")
+        text = top.get("text", "")
+
+        # Clean and simplify for citizen display
+        summary = _clean_budget_text(text)
+
+        if score >= 0.80:
+            status = "matched"
+        elif score >= 0.70:
+            status = "partial"
+        else:
+            status = "ignored"
+
+        return {
+            "budgetResult": f"p.{page} ({score:.0%} match): {summary}",
+            "status": status,
+            "source_page": page,
+            "confidence": round(score, 3),
+        }
+
+    except Exception as e:
+        return {
+            "budgetResult": f"Budget search unavailable. Request stored for review.",
+            "status": "ignored",
+            "source_page": None,
+            "confidence": 0,
+        }
 
 
 # ── FastAPI app ──────────────────────────────────────────────────────────
@@ -299,3 +314,161 @@ def create_submission(payload: dict):
     _write_csv(SUBMISSIONS_PATH, existing)
 
     return record
+
+
+# ── Report Generation for CSOs ───────────────────────────────────────────
+
+@app.get("/api/report")
+def generate_report(
+    ward: str | None = None,
+    sector: str | None = None,
+    status: str | None = None,
+    dateFrom: str | None = None,
+    dateTo: str | None = None,
+    format: str = "json",
+):
+    """
+    Generate an aggregated report for Civil Society Organisations (CSOs).
+
+    Query params (all optional filters):
+      - ward:       filter by ward name
+      - sector:     filter by sector
+      - status:     filter by status (matched | partial | ignored)
+      - dateFrom:   filter submissions on or after this date (YYYY-MM-DD)
+      - dateTo:     filter submissions on or before this date (YYYY-MM-DD)
+      - format:     "json" (default) or "csv"
+
+    Returns:
+      {
+        filters: { ... },
+        summary: { total, matched, partial, ignored },
+        bySector: [...],
+        byWard: [...],
+        byChannel: [...],
+        byStatus: {...},
+        fundingGap: { matchedCount, partialCount, ignoredCount, pctAddressed },
+        submissions: [ ... filtered records ],
+      }
+    """
+    import re as _re
+
+    all_rows = _read_csv(SUBMISSIONS_PATH)
+
+    # Apply filters
+    filtered = []
+    for row in all_rows:
+        if ward and row.get("ward", "").strip().lower() != ward.strip().lower():
+            continue
+        if sector and row.get("sector", "").strip().lower() != sector.strip().lower():
+            continue
+        if status and row.get("status", "").strip().lower() != status.strip().lower():
+            continue
+        row_date = row.get("submittedAt", "")
+        if dateFrom and row_date < dateFrom:
+            continue
+        if dateTo and row_date > dateTo:
+            continue
+        filtered.append(row)
+
+    total = len(filtered)
+
+    # ── By Status ──
+    by_status = {"matched": 0, "partial": 0, "ignored": 0}
+    for r in filtered:
+        st = r.get("status", "ignored")
+        if st in by_status:
+            by_status[st] += 1
+
+    # ── By Sector ──
+    sector_map: dict[str, dict] = {}
+    for r in filtered:
+        sec = r.get("sector", "Uncategorized")
+        if sec not in sector_map:
+            sector_map[sec] = {"sector": sec, "count": 0, "matched": 0, "partial": 0, "ignored": 0}
+        sector_map[sec]["count"] += 1
+        st = r.get("status", "ignored")
+        if st in ("matched", "partial", "ignored"):
+            sector_map[sec][st] += 1
+
+    by_sector = sorted(sector_map.values(), key=lambda x: x["count"], reverse=True)
+
+    # ── By Ward ──
+    ward_map: dict[str, dict] = {}
+    for r in filtered:
+        w = r.get("ward", "Unknown")
+        if w not in ward_map:
+            ward_map[w] = {"ward": w, "count": 0, "matched": 0, "partial": 0, "ignored": 0}
+        ward_map[w]["count"] += 1
+        st = r.get("status", "ignored")
+        if st in ("matched", "partial", "ignored"):
+            ward_map[w][st] += 1
+
+    by_ward = sorted(ward_map.values(), key=lambda x: x["count"], reverse=True)
+
+    # ── By Channel ──
+    channel_map: dict[str, int] = {}
+    for r in filtered:
+        ch = r.get("channel", "Unknown")
+        channel_map[ch] = channel_map.get(ch, 0) + 1
+
+    by_channel = [{"channel": k, "count": v} for k, v in sorted(channel_map.items(), key=lambda x: x[1], reverse=True)]
+
+    # ── Funding Gap ──
+    pct_addressed = round((by_status["matched"] / total * 100), 1) if total > 0 else 0
+    funding_gap = {
+        "matchedCount": by_status["matched"],
+        "partialCount": by_status["partial"],
+        "ignoredCount": by_status["ignored"],
+        "pctAddressed": pct_addressed,
+        "pctUnaddressed": round(100 - pct_addressed, 1),
+    }
+
+    # ── Top Requests ──
+    request_counts: dict[str, dict] = {}
+    for r in filtered:
+        text = r.get("citizenInput", "").strip().lower()
+        if text:
+            if text not in request_counts:
+                request_counts[text] = {"text": r.get("citizenInput", ""), "count": 0, "ward": r.get("ward", ""), "status": r.get("status", "")}
+            request_counts[text]["count"] += 1
+
+    top_requests = sorted(request_counts.values(), key=lambda x: x["count"], reverse=True)[:10]
+
+    # ── Available filters ──
+    all_wards = sorted({r.get("ward", "") for r in all_rows if r.get("ward")})
+    all_sectors = sorted({r.get("sector", "") for r in all_rows if r.get("sector")})
+    all_statuses = ["matched", "partial", "ignored"]
+
+    report = {
+        "filters": {
+            "applied": {"ward": ward, "sector": sector, "status": status, "dateFrom": dateFrom, "dateTo": dateTo},
+            "available": {"wards": all_wards, "sectors": all_sectors, "statuses": all_statuses},
+        },
+        "summary": {
+            "total": total,
+            "matched": by_status["matched"],
+            "partial": by_status["partial"],
+            "ignored": by_status["ignored"],
+        },
+        "bySector": by_sector,
+        "byWard": by_ward,
+        "byChannel": by_channel,
+        "byStatus": by_status,
+        "fundingGap": funding_gap,
+        "topRequests": top_requests,
+        "submissions": filtered if format != "csv" else [],
+    }
+
+    # ── CSV export ──
+    if format == "csv":
+        from io import StringIO
+        import csv as _csv
+
+        output = StringIO()
+        if filtered:
+            writer = _csv.DictWriter(output, fieldnames=list(filtered[0].keys()))
+            writer.writeheader()
+            writer.writerows(filtered)
+        return {"csv": output.getvalue(), "filename": f"sauti_yetu_report_{time.strftime('%Y%m%d')}.csv"}
+
+    return report

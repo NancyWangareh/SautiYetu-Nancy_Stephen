@@ -4,12 +4,14 @@ import {
   MessageSquarePlus, 
   Inbox, 
   GitCompareArrows,
+  FileText,
   PanelLeft
 } from "lucide-react";
 
 import Input from "./pages/Input";
 import Matches from "./pages/Matches";
 import Submissions from "./pages/Submissions";
+import Reports from "./pages/Reports";
 
 function App() {
   const [activeView, setActiveView] = useState('input');
@@ -22,6 +24,8 @@ function App() {
         return <Matches />;
       case 'submissions':
         return <Submissions />;
+      case 'reports':
+        return <Reports />;
       default:
         return <Input onNavigate={setActiveView} />;
     }
@@ -58,7 +62,7 @@ function App() {
             }`}
           >
             <MessageSquarePlus size={18} />
-            Simulate Input
+            Citizen Input
           </button>
 
           <button
@@ -83,6 +87,18 @@ function App() {
           >
             <GitCompareArrows size={18} />
             Budget Matches
+          </button>
+
+          <button
+            onClick={() => setActiveView('reports')}
+            className={`cursor-pointer w-full flex items-center gap-3 px-3 py-2 rounded-md transition-colors text-sm font-medium ${
+              activeView === 'reports' 
+                ? 'bg-[#1A4B35] text-white' 
+                : 'text-[#E2E8F0] hover:bg-[#13402A]'
+            }`}
+          >
+            <FileText size={18} />
+            CSO Reports
           </button>
         </div>
 

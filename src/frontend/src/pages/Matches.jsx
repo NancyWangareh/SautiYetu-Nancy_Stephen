@@ -8,6 +8,11 @@ import {
   Loader2,
   FileText,
   AlertCircle,
+  BookOpen,
+  Lightbulb,
+  ChevronDown,
+  ChevronUp,
+  Megaphone,
 } from "lucide-react";
 import { useBudgetMatches } from "../data/matches";
 
@@ -27,9 +32,33 @@ const STATUS_CONFIG = {
   },
 };
 
+/** Parse the participation JSON field from a submission record */
+function getParticipation(record) {
+  try {
+    if (record.participation) {
+      return typeof record.participation === "string"
+        ? JSON.parse(record.participation)
+        : record.participation;
+    }
+  } catch {
+    // ignore parse errors
+  }
+  return null;
+}
+
 /* ─── MatchCard component ─── */
 function MatchCard({ record }) {
   const statusCfg = STATUS_CONFIG[record.status] || STATUS_CONFIG.ignored;
+  const [showSimplified, setShowSimplified] = useState(false);
+  const part = getParticipation(record);
+
+  // Parse key points from CSV (semicolon-separated) or from API (array)
+  const keyPoints =
+    typeof record.keyPoints === "string" && record.keyPoints
+      ? record.keyPoints.split(";").map((p) => p.trim()).filter(Boolean)
+      : Array.isArray(record.keyPoints)
+        ? record.keyPoints
+        : [];
 
   return (
     <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
@@ -47,6 +76,12 @@ function MatchCard({ record }) {
         >
           {statusCfg.label}
         </span>
+        {part?.hasMatch && (
+          <span className="inline-flex items-center gap-1 rounded-full border border-amber-300 bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700">
+            <Megaphone className="h-3 w-3" />
+            🗣️ +{((part.boostFactor || 0) * 100).toFixed(0)}% priority boost
+          </span>
+        )}
       </div>
 
       {/* Three-column grid: citizen input | arrow | budget result */}
@@ -88,6 +123,54 @@ function MatchCard({ record }) {
           <p className="text-sm leading-relaxed text-slate-700">
             {record.budgetResult}
           </p>
+
+          {/* ── Plain Language Explanation ── */}
+          {record.simplified && (
+            <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50/50">
+              <button
+                onClick={() => setShowSimplified(!showSimplified)}
+                className="flex w-full items-center justify-between rounded-t-lg px-4 py-2.5 text-left text-xs font-semibold text-emerald-700 transition-colors hover:bg-emerald-50"
+              >
+                <span className="flex items-center gap-1.5">
+                  <BookOpen className="h-3.5 w-3.5" />
+                  Plain Language Explanation
+                </span>
+                {showSimplified ? (
+                  <ChevronUp className="h-3.5 w-3.5" />
+                ) : (
+                  <ChevronDown className="h-3.5 w-3.5" />
+                )}
+              </button>
+
+              {showSimplified && (
+                <div className="space-y-2 border-t border-emerald-200 px-4 py-3">
+                  <p className="text-sm leading-relaxed text-slate-700">
+                    {record.simplified}
+                  </p>
+
+                  {keyPoints.length > 0 && (
+                    <ul className="space-y-1.5">
+                      {keyPoints.map((point, i) => (
+                        <li
+                          key={i}
+                          className="flex items-start gap-2 text-sm text-slate-600"
+                        >
+                          <Lightbulb className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-amber-500" />
+                          <span>{point}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+
+                  {record.category && (
+                    <span className="inline-flex items-center rounded-full border border-emerald-300 bg-white px-2.5 py-0.5 text-xs text-emerald-700">
+                      Category: {record.category}
+                    </span>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -104,6 +187,27 @@ function Matches() {
   const [isSearching, setIsSearching] = useState(false);
   const [searchError, setSearchError] = useState("");
   const [hasSearched, setHasSearched] = useState(false);
+  const [simplifiedResults, setSimplifiedResults] = useState({});
+  const [simplifyingIdx, setSimplifyingIdx] = useState(null);
+
+  const handleSimplifyResult = async (idx, text) => {
+    setSimplifyingIdx(idx);
+    try {
+      const res = await fetch("http://localhost:8000/api/simplify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setSimplifiedResults((prev) => ({ ...prev, [idx]: data }));
+      }
+    } catch {
+      // Silently fail — simplification is optional
+    } finally {
+      setSimplifyingIdx(null);
+    }
+  };
 
   const handleSearch = async () => {
     const query = searchQuery.trim();
@@ -224,7 +328,9 @@ function Matches() {
                   {searchResults.length !== 1 ? "s" : ""} &middot; Semantic
                   search
                 </p>
-                {searchResults.map((result, idx) => (
+                {searchResults.map((result, idx) => {
+                  const simplified = simplifiedResults[idx];
+                  return (
                   <div
                     key={idx}
                     className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm transition-shadow hover:shadow"
@@ -241,8 +347,53 @@ function Matches() {
                     <p className="text-sm leading-relaxed text-slate-700 whitespace-pre-line">
                       {result.text}
                     </p>
+
+                    {/* Simplify button */}
+                    {!simplified && (
+                      <button
+                        onClick={() => handleSimplifyResult(idx, result.text)}
+                        disabled={simplifyingIdx === idx}
+                        className="mt-2 inline-flex items-center gap-1.5 rounded-md border border-emerald-200 bg-white px-3 py-1.5 text-xs font-medium text-emerald-700 transition-colors hover:bg-emerald-50 disabled:opacity-50"
+                      >
+                        {simplifyingIdx === idx ? (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : (
+                          <BookOpen className="h-3 w-3" />
+                        )}
+                        {simplifyingIdx === idx
+                          ? "Translating..."
+                          : "Translate to Plain Language"}
+                      </button>
+                    )}
+
+                    {/* Simplified explanation */}
+                    {simplified && (
+                      <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50/60 p-3">
+                        <div className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-amber-700">
+                          <Lightbulb className="h-3.5 w-3.5" />
+                          Plain Language
+                        </div>
+                        <p className="text-sm leading-relaxed text-slate-700">
+                          {simplified.simplified}
+                        </p>
+                        {simplified.keyPoints?.length > 0 && (
+                          <ul className="mt-2 space-y-1">
+                            {simplified.keyPoints.map((point, i) => (
+                              <li
+                                key={i}
+                                className="flex items-start gap-1.5 text-xs text-slate-600"
+                              >
+                                <span className="mt-0.5 text-amber-500">•</span>
+                                {point}
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                    )}
                   </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>

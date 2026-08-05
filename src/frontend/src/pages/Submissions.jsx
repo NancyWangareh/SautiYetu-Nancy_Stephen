@@ -1,4 +1,19 @@
 import { useSubmissions } from "../data/store";
+import { Megaphone } from "lucide-react";
+
+/** Parse the participation JSON field from a submission record */
+function getParticipation(record) {
+  try {
+    if (record.participation) {
+      return typeof record.participation === "string"
+        ? JSON.parse(record.participation)
+        : record.participation;
+    }
+  } catch {
+    // ignore parse errors
+  }
+  return null;
+}
 
 function Submissions() {
   const submissions = useSubmissions();
@@ -39,33 +54,44 @@ function Submissions() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {submissions.map((s) => (
-                  <tr
-                    key={s.id}
-                    className="transition-colors hover:bg-slate-50"
-                  >
-                    <td className="px-4 py-3 font-mono text-xs text-slate-500">
-                      {s.id}
-                    </td>
-                    <td className="px-4 py-3 text-slate-700">{s.ward}</td>
-                    <td className="px-4 py-3">
-                      <span className="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-600">
-                        {s.channel}
-                      </span>
-                    </td>
-                    <td className="max-w-xs truncate px-4 py-3 text-slate-500">
-                      {s.citizenInput}
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-0.5 text-xs font-medium text-emerald-700">
-                        {s.sector}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-slate-500">
-                      {s.submittedAt}
-                    </td>
-                  </tr>
-                ))}
+                {submissions.map((s) => {
+                  const part = getParticipation(s);
+                  return (
+                    <tr
+                      key={s.id}
+                      className="transition-colors hover:bg-slate-50"
+                    >
+                      <td className="px-4 py-3 font-mono text-xs text-slate-500">
+                        {s.id}
+                      </td>
+                      <td className="px-4 py-3 text-slate-700">{s.ward}</td>
+                      <td className="px-4 py-3">
+                        <span className="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-600">
+                          {s.channel}
+                        </span>
+                      </td>
+                      <td className="max-w-xs truncate px-4 py-3 text-slate-500">
+                        {part?.hasMatch && (
+                          <Megaphone className="mr-1 inline-block h-3.5 w-3.5 text-amber-500" title="Also raised in public participation" />
+                        )}
+                        {s.citizenInput}
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-0.5 text-xs font-medium text-emerald-700">
+                          {s.sector}
+                        </span>
+                        {part?.hasMatch && (
+                          <span className="ml-1.5 inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700">
+                            🗣️ Voices
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-slate-500">
+                        {s.submittedAt}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

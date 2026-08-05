@@ -1,10 +1,6 @@
 import { useState, useEffect, useRef } from "react";
-<<<<<<< HEAD
-import { Loader2, Send, MessageSquarePlus, Sparkles, CheckCircle2, AlertCircle, MapPin, Radio } from "lucide-react";
-=======
-import { Loader2, Send, MessageSquarePlus, Sparkles, CheckCircle2, Paperclip, AlertCircle, MapPin, Radio } from "lucide-react";
->>>>>>> 49a3f42739e9d47cb6cfb6133f7ab2dd9a65f243
-import { classifyInput } from "../data/classify";
+import { Loader2, Send, MessageSquarePlus, Sparkles, CheckCircle2, Paperclip, AlertCircle, MapPin, Radio, Users, Megaphone } from "lucide-react";
+import { classifyInput, checkParticipation } from "../data/classify";
 import { submitToBackend, useWards } from "../data/store";
 
 const CHANNELS = ["Web Form", "SMS", "USSD", "Baraza"];
@@ -15,6 +11,7 @@ function Input({ onNavigate }) {
   const [toast, setToast] = useState(null);
   const [preview, setPreview] = useState(null);
   const [classifying, setClassifying] = useState(false);
+  const [participationMatch, setParticipationMatch] = useState(null);
   const [error, setError] = useState("");
   const [ward, setWard] = useState("Umoja I");
   const [channel, setChannel] = useState("Web Form");
@@ -28,16 +25,22 @@ function Input({ onNavigate }) {
     const text = input.trim();
     if (!text) {
       setPreview(null);
+      setParticipationMatch(null);
       return;
     }
 
     setClassifying(true);
     debounceRef.current = setTimeout(async () => {
       try {
-        const result = await classifyInput(text);
+        const [result, participation] = await Promise.all([
+          classifyInput(text),
+          checkParticipation(text),
+        ]);
         setPreview(result);
+        setParticipationMatch(participation.hasMatch ? participation : null);
       } catch {
         setPreview(null);
+        setParticipationMatch(null);
       } finally {
         setClassifying(false);
       }
@@ -62,6 +65,7 @@ function Input({ onNavigate }) {
       await submitToBackend(input.trim(), ward, channel);
       setInput("");
       setPreview(null);
+      setParticipationMatch(null);
       showToast(`Submitted from ${ward}! Classified and matched against the enacted budget.`);
       setTimeout(() => onNavigate("submissions"), 800);
     } catch (err) {
@@ -168,8 +172,6 @@ function Input({ onNavigate }) {
               ))}
             </select>
           </div>
-<<<<<<< HEAD
-=======
         </div>
 
         {/* ── Dummy attachment button ── */}
@@ -183,7 +185,6 @@ function Input({ onNavigate }) {
             <Paperclip className="h-3.5 w-3.5" />
             Attach Photo
           </button>
->>>>>>> 49a3f42739e9d47cb6cfb6133f7ab2dd9a65f243
         </div>
 
         {/* Classification preview */}
@@ -210,6 +211,38 @@ function Input({ onNavigate }) {
                 )}
               </>
             )}
+          </div>
+        )}
+
+        {/* ── Participation match indicator ── */}
+        {participationMatch && !classifying && (
+          <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3">
+            <div className="flex items-start gap-2">
+              <Megaphone className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-600" />
+              <div className="flex-1">
+                <p className="text-sm font-medium text-amber-800">
+                  🗣️ Similar concern raised in public participation
+                </p>
+                <p className="mt-1 text-xs text-amber-700">
+                  "{participationMatch.matches[0]?.text?.slice(0, 200)}
+                  {participationMatch.matches[0]?.text?.length > 200 ? "..." : ""}"
+                </p>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <span className="inline-flex items-center rounded-full border border-amber-300 bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">
+                    <Users className="mr-1 h-3 w-3" />
+                    {participationMatch.matches.length} matching voice{participationMatch.matches.length > 1 ? "s" : ""}
+                  </span>
+                  <span className="text-xs text-amber-600">
+                    {(participationMatch.bestScore * 100).toFixed(0)}% semantic similarity
+                  </span>
+                  {participationMatch.boostFactor > 0 && (
+                    <span className="text-xs text-amber-600">
+                      +{(participationMatch.boostFactor * 100).toFixed(0)}% budget priority boost
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
           </div>
         )}
 

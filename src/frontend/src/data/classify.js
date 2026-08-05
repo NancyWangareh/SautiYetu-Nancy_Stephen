@@ -22,6 +22,33 @@ export async function classifyInput(text) {
   return fallbackClassify(text);
 }
 
+/**
+ * Check if the citizen input matches any existing public participation data.
+ * Used for real-time highlighting as the user types.
+ *
+ * Returns: { hasMatch, boostFactor, matches: [{ score, text, section }] }
+ */
+export async function checkParticipation(text) {
+  if (!text || text.trim().length < 10) {
+    return { hasMatch: false, boostFactor: 0.0, matches: [] };
+  }
+
+  try {
+    const res = await fetch(`${API_BASE}/api/participation-check`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text }),
+    });
+    if (res.ok) {
+      return await res.json();
+    }
+  } catch (err) {
+    console.warn("Participation check unavailable:", err.message);
+  }
+
+  return { hasMatch: false, boostFactor: 0.0, matches: [] };
+}
+
 /** Simple local fallback — tries to guess sector from keywords */
 function fallbackClassify(text) {
   const lower = text.toLowerCase();

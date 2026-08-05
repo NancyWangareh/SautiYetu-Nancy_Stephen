@@ -3,16 +3,27 @@ FastAPI application — RAG backend for budget PDF semantic search.
 """
 import csv
 import json
+import os
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI
+from dotenv import load_dotenv
+from fastapi import FastAPI, File, Form, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+import shutil
+import tempfile
 
 from .embedder import EmbeddingService
+from .participation_matcher import find_similar_participation, ingest_participation
+from .participation_parser import process_participation_pdf
+from .simplifier import simplify_budget_line, simplify_with_llm
 from .vector_store import VectorStore
+
+# ── Load environment variables ───────────────────────────────────────────
+load_dotenv(Path(__file__).resolve().parents[2] / ".env")
+DEEPSEEK_AVAILABLE = bool(os.environ.get("DEEPSEEK_API_KEY", "").strip())
 
 
 # ── Paths ────────────────────────────────────────────────────────────────
@@ -53,11 +64,15 @@ def _read_csv(path: Path) -> list[dict[str, str]]:
 
 
 def _write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
-    """Write a list of dicts to a CSV file."""
+    """Write a list of dicts to a CSV file. Collects all field names from all rows."""
     if not rows:
         return
+    # Collect all unique field names across all rows (handles mixed old/new records)
+    fieldnames = list(dict.fromkeys(
+        k for row in rows for k in row.keys()
+    ))
     with open(path, "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
+        writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
         writer.writeheader()
         writer.writerows(rows)
 
@@ -90,7 +105,6 @@ def classify_text(text: str) -> dict:
 
 
 # ── Budget matching (semantic search against vector DB) ─────────────────
-<<<<<<< HEAD
 
 def _clean_budget_text(text: str) -> str:
     """
@@ -101,17 +115,12 @@ def _clean_budget_text(text: str) -> str:
     cleaned = re.sub(r"\s+", " ", text).strip()
     return cleaned
 
-=======
->>>>>>> 49a3f42739e9d47cb6cfb6133f7ab2dd9a65f243
 
 def match_budget(sector: str, sub_sector: str, query_text: str) -> dict:
     """
     Match a citizen request against the enacted budget PDF via semantic search.
-<<<<<<< HEAD
-=======
 
     Uses Qdrant vector store (1,474 chunks from the Nairobi County budget PDF).
->>>>>>> 49a3f42739e9d47cb6cfb6133f7ab2dd9a65f243
     Returns { budgetResult, status, source_page, confidence }.
     """
     try:
@@ -120,43 +129,52 @@ def match_budget(sector: str, sub_sector: str, query_text: str) -> dict:
 
         if not vec.collection_exists():
             return {
-<<<<<<< HEAD
-                "budgetResult": "Budget index unavailable. Ingest the PDF first.",
-=======
                 "budgetResult": "Budget document index not yet available. Please ingest the PDF first.",
->>>>>>> 49a3f42739e9d47cb6cfb6133f7ab2dd9a65f243
                 "status": "ignored",
                 "source_page": None,
                 "confidence": 0,
             }
 
-<<<<<<< HEAD
-=======
-        # Search with the citizen's original text for best semantic match
->>>>>>> 49a3f42739e9d47cb6cfb6133f7ab2dd9a65f243
-        q_emb = emb.embed_query(query_text)
-        hits = vec.search(q_emb, top_k=3)
+        # Build enriched query: sector + sub-sector context improves semantic relevance
+        if sector and sector != "Uncategorized":
+            enriched_query = f"{sector}: {sub_sector}. {query_text}"
+        else:
+            enriched_query = query_text
+
+        q_emb = emb.embed_query(enriched_query)
+        hits = vec.search(q_emb, top_k=5)
 
         if not hits:
             return {
-<<<<<<< HEAD
-                "budgetResult": "No matching budget provision found.",
-=======
                 "budgetResult": "No matching budget provision found in the enacted Nairobi County budget.",
->>>>>>> 49a3f42739e9d47cb6cfb6133f7ab2dd9a65f243
                 "status": "ignored",
                 "source_page": None,
                 "confidence": 0,
             }
 
-        top = hits[0]
-        score = top.get("score", 0)
-        page = top.get("page_number", "?")
-        text = top.get("text", "")
+        # Pick the best hit that has a meaningful score
+        best = None
+        for hit in hits:
+            score = hit.get("score", 0)
+            text = hit.get("text", "")
+            # Skip hits that look like noise (no budget amounts, too short)
+            if len(text.strip()) < 30:
+                continue
+            best = hit
+            break
 
-<<<<<<< HEAD
-        # Clean and simplify for citizen display
+        if best is None:
+            best = hits[0]
+
+        score = best.get("score", 0)
+        page = best.get("page_number", "?")
+        text = best.get("text", "")
+
+        # Preserve full budget line text with all amounts intact
         summary = _clean_budget_text(text)
+
+        # Simplify: use DeepSeek LLM if configured, otherwise rule-based
+        simplified = simplify_with_llm(summary) if DEEPSEEK_AVAILABLE else simplify_budget_line(summary)
 
         if score >= 0.80:
             status = "matched"
@@ -167,36 +185,18 @@ def match_budget(sector: str, sub_sector: str, query_text: str) -> dict:
 
         return {
             "budgetResult": f"p.{page} ({score:.0%} match): {summary}",
-=======
-        # Clean up the text excerpt for display
-        excerpt = text.strip()[:250]
-
-        # Score thresholds for status
-        if score >= 0.80:
-            status = "matched"
-            status_label = "Found"
-        elif score >= 0.70:
-            status = "partial"
-            status_label = "Partial match"
-        else:
-            status = "ignored"
-            status_label = "Weak match"
-
-        return {
-            "budgetResult": f"[{status_label} · p.{page} · {score:.0%}] {excerpt}",
->>>>>>> 49a3f42739e9d47cb6cfb6133f7ab2dd9a65f243
             "status": status,
             "source_page": page,
             "confidence": round(score, 3),
+            # Plain-language explanation for citizens
+            "simplified": simplified["simplified"],
+            "keyPoints": simplified["keyPoints"],
+            "category": simplified["category"],
         }
 
     except Exception as e:
         return {
-<<<<<<< HEAD
-            "budgetResult": f"Budget search unavailable. Request stored for review.",
-=======
             "budgetResult": f"Budget search unavailable ({str(e)[:100]}). Request stored for review.",
->>>>>>> 49a3f42739e9d47cb6cfb6133f7ab2dd9a65f243
             "status": "ignored",
             "source_page": None,
             "confidence": 0,
@@ -212,11 +212,29 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=["http://localhost:5173", "http://localhost:5174", "http://127.0.0.1:5173", "http://127.0.0.1:5174"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# ── Startup: preload models so first request is fast ─────────────────────
+
+@app.on_event("startup")
+def _startup():
+    """Preload the embedding model and connect to Qdrant at boot time."""
+    import threading
+
+    def _preload():
+        # Force eager loading of the embedding model
+        emb = get_embedder()
+        emb._load()
+        # Also connect to the vector store
+        get_store()
+
+    t = threading.Thread(target=_preload, daemon=True)
+    t.start()
 
 
 # ── Endpoints ────────────────────────────────────────────────────────────
@@ -228,6 +246,7 @@ def health():
         "status": "ok",
         "embedder_loaded": embedder is not None and embedder.model is not None,
         "store_ready": store is not None and store.client is not None,
+        "deepseek_available": DEEPSEEK_AVAILABLE,
     }
 
 
@@ -317,7 +336,13 @@ def classify(payload: dict):
 @app.post("/api/submissions")
 def create_submission(payload: dict):
     """
-    Create a new citizen submission: classify, match budget, store to CSV.
+    Create a new citizen submission: classify, check participation, match budget, store to CSV.
+
+    The matching now uses a two-stage retrieval with participation boosting:
+      1. Classify input by sector/sub-sector
+      2. Check if similar concerns exist in public participation data
+      3. Match against enacted budget via semantic search
+      4. Apply participation boost factor to budget confidence
 
     Expects: { "text": "...", "ward": "Umoja I", "channel": "Web Form" }
     Returns: the enriched submission record.
@@ -334,12 +359,39 @@ def create_submission(payload: dict):
     sector = classification["sector"]
     sub_sector = classification["subSector"]
 
-    # 2. Match against budget
+    # 2. Check participation data for similar community concerns
+    participation = find_similar_participation(text, get_embedder(), get_store())
+
+    # 3. Match against budget (with participation boosting)
     match = match_budget(sector, sub_sector, text)
 
-    # 3. Build record
+    # Apply participation boost to budget confidence if a match exists
+    if participation["hasMatch"]:
+        boost = participation["boostFactor"]
+        boosted_confidence = min(0.99, match.get("confidence", 0) + boost)
+        match["confidence"] = round(boosted_confidence, 3)
+
+        # Elevate status if confidence crosses thresholds
+        if boosted_confidence >= 0.80 and match.get("status") != "matched":
+            match["status"] = "matched"
+        elif boosted_confidence >= 0.70 and match.get("status") == "ignored":
+            match["status"] = "partial"
+
+    # 4. Build record
     existing = _read_csv(SUBMISSIONS_PATH)
     next_num = 10300 + len(existing) + 1
+
+    # Combine key points into a semicolon-separated string for CSV storage
+    key_points_csv = "; ".join(match.get("keyPoints", []))
+
+    # Serialize participation matches for CSV (compact JSON string)
+    participation_json = json.dumps({
+        "hasMatch": participation["hasMatch"],
+        "boostFactor": participation["boostFactor"],
+        "matchCount": len(participation["matches"]),
+        "topMatch": participation["matches"][0]["text"][:200] if participation["matches"] else "",
+    })
+
     record = {
         "id": f"SUB-{next_num}",
         "ward": ward,
@@ -350,13 +402,74 @@ def create_submission(payload: dict):
         "budgetResult": match["budgetResult"],
         "status": match["status"],
         "submittedAt": time.strftime("%Y-%m-%d"),
+        "simplified": match.get("simplified", ""),
+        "keyPoints": key_points_csv,
+        "category": match.get("category", ""),
+        "participation": participation_json,
     }
 
-    # 4. Append to CSV
+    # 5. Append to CSV
     existing.append(record)
     _write_csv(SUBMISSIONS_PATH, existing)
 
-    return record
+    # Return full record with detailed participation data for the frontend
+    return {**record, "participationDetail": participation}
+
+
+# ── Budget Simplification endpoint ───────────────────────────────────────
+
+@app.post("/api/simplify")
+def simplify_budget(payload: dict):
+    """
+    Translate a complex budget line into plain, citizen-friendly language.
+
+    Expects: { "text": "Programme Based Budget: Recurrent Estimates..." }
+    Returns: { "original", "simplified", "keyPoints", "category" }
+    """
+    text = payload.get("text", "").strip()
+    if not text:
+        return {"error": "Text is required"}, 400
+
+    use_llm = payload.get("useLlm", False)
+
+    if use_llm:
+        return simplify_with_llm(text)
+
+    return simplify_budget_line(text)
+
+
+# ── Participation ingestion endpoint ────────────────────────────────────
+
+@app.post("/api/ingest-participation")
+def ingest_participation_endpoint(payload: dict | None = None):
+    """
+    Ingest a public participation PDF — parse, extract citizen points,
+    embed, and store in the participation vector collection.
+
+    Optional payload: { "pdf_path": "/absolute/path/to/participation.pdf" }
+    """
+    pdf_path = (payload or {}).get("pdf_path", None)
+    stats = ingest_participation(pdf_path)
+    return {"status": "completed", **stats}
+
+
+# ── Real-time participation check endpoint ───────────────────────────────
+
+@app.post("/api/participation-check")
+def participation_check(payload: dict):
+    """
+    Real-time check: does this citizen input match any existing public
+    participation points? Used for live highlighting as the user types.
+
+    Expects: { "text": "We need a maternity wing..." }
+    Returns: { hasMatch, boostFactor, matches: [...] }
+    """
+    text = payload.get("text", "").strip()
+    if not text or len(text) < 10:
+        return {"hasMatch": False, "boostFactor": 0.0, "matches": []}
+
+    result = find_similar_participation(text, get_embedder(), get_store())
+    return result
 
 
 # ── Report Generation for CSOs ───────────────────────────────────────────
@@ -515,3 +628,148 @@ def generate_report(
         return {"csv": output.getvalue(), "filename": f"sauti_yetu_report_{time.strftime('%Y%m%d')}.csv"}
 
     return report
+
+
+# ── Participation PDF Upload & Point Extraction ──────────────────────────
+
+# In-memory store for the latest participation session (points awaiting matching)
+_participation_session: dict = {}
+
+
+@app.post("/api/upload-participation")
+async def upload_participation_pdf(
+    file: UploadFile = File(...),
+    county: str = Form(""),
+):
+    """
+    Upload a public participation PDF, extract grassroots citizen input points.
+
+    Accepts a PDF file via multipart/form-data.
+    Optional 'county' form field filters pages to only that county (e.g., "Nairobi").
+
+    Response:
+        {
+            "filename": "umoja_baraza.pdf",
+            "pages_parsed": 150,
+            "pages_filtered": 15,
+            "county": "Nairobi",
+            "points_extracted": 47,
+            "points": [
+                { "point_id": "PT-001", "text": "...", "page_number": 3, ... },
+                ...
+            ]
+        }
+    """
+    global _participation_session
+
+    if not file.filename or not file.filename.lower().endswith(".pdf"):
+        return {"error": "Only PDF files are accepted"}, 400
+
+    # Save uploaded file to a temporary location
+    suffix = f"_{file.filename}"
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+        shutil.copyfileobj(file.file, tmp)
+        tmp_path = tmp.name
+
+    try:
+        result = process_participation_pdf(tmp_path, county=county if county else None)
+
+        # Store session for later matching
+        _participation_session = {
+            "filename": result["filename"],
+            "points": result["points"],
+        }
+
+        return result
+
+    finally:
+        # Clean up temporary file
+        Path(tmp_path).unlink(missing_ok=True)
+
+
+@app.post("/api/match-points")
+async def match_selected_points(payload: dict):
+    """
+    Match selected citizen input points against the enacted budget.
+
+    Expects:
+        {
+            "point_ids": ["PT-001", "PT-003", ...],  # IDs of selected points
+            "ward": "Umoja I"                          # optional ward context
+        }
+
+    Returns:
+        {
+            "results": [
+                {
+                    "point_id": "PT-001",
+                    "citizenInput": "...",
+                    "sector": "Health",
+                    "subSector": "Maternal health",
+                    "budgetResult": "p.143 (87% match): ...",
+                    "status": "matched",
+                    "simplified": "...",
+                    "keyPoints": [...],
+                    "category": "...",
+                },
+                ...
+            ],
+            "summary": { "total": 3, "matched": 2, "partial": 1, "ignored": 0 }
+        }
+    """
+    global _participation_session
+
+    point_ids = payload.get("point_ids", [])
+    ward = payload.get("ward", "Not specified")
+
+    if not point_ids:
+        return {"error": "No point_ids provided"}, 400
+
+    # Build lookup from session
+    points_map = {}
+    if _participation_session.get("points"):
+        points_map = {p["point_id"]: p for p in _participation_session["points"]}
+
+    results = []
+    summary = {"total": 0, "matched": 0, "partial": 0, "ignored": 0}
+
+    for pid in point_ids:
+        point = points_map.get(pid, {})
+        text = point.get("text", pid)
+
+        # Classify the point
+        classification = classify_text(text)
+        sector = classification["sector"]
+        sub_sector = classification["subSector"]
+
+        # Match against budget
+        match = match_budget(sector, sub_sector, text)
+
+        result = {
+            "point_id": pid,
+            "citizenInput": text,
+            "page_number": point.get("page_number"),
+            "section": point.get("section", ""),
+            "sector": sector,
+            "subSector": sub_sector,
+            "budgetResult": match["budgetResult"],
+            "status": match["status"],
+            "confidence": match.get("confidence", 0),
+            "simplified": match.get("simplified", ""),
+            "keyPoints": match.get("keyPoints", []),
+            "category": match.get("category", ""),
+        }
+
+        results.append(result)
+        summary["total"] += 1
+        st = match.get("status", "ignored")
+        if st in summary:
+            summary[st] += 1
+
+    return {"results": results, "summary": summary}
+
+
+@app.get("/api/participation-session")
+def get_participation_session():
+    """Return the current participation session (extracted points)."""
+    return _participation_session

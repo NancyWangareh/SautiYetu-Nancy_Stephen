@@ -5,11 +5,13 @@ import {
   Inbox, 
   GitCompareArrows,
   FileText,
+  Upload,
   PanelLeft
 } from "lucide-react";
 
 import Input from "./pages/Input";
 import Matches from "./pages/Matches";
+import Participation from "./pages/Participation";
 import Submissions from "./pages/Submissions";
 import Reports from "./pages/Reports";
 
@@ -24,6 +26,8 @@ function App() {
         return <Matches />;
       case 'submissions':
         return <Submissions />;
+      case 'participation':
+        return <Participation />;
       case 'reports':
         return <Reports />;
       default:
@@ -75,6 +79,18 @@ function App() {
           >
             <Inbox size={18} />
             Submissions
+          </button>
+
+          <button
+            onClick={() => setActiveView('participation')}
+            className={`cursor-pointer w-full flex items-center gap-3 px-3 py-2 rounded-md transition-colors text-sm font-medium ${
+              activeView === 'participation' 
+                ? 'bg-[#1A4B35] text-white' 
+                : 'text-[#E2E8F0] hover:bg-[#13402A]'
+            }`}
+          >
+            <Upload size={18} />
+            Participation PDF
           </button>
 
           <button

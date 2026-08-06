@@ -3,10 +3,12 @@ uvicorn
 python-multipart
 pdfplumber
 openai
-pinecone
 supabase
 sqlalchemy
 asyncpg
 python-dotenv
 pydantic
 sentence-transformers
+qdrant-client
+langchain-text-splitters
+aiosqlite

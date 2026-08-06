@@ -1,236 +1,189 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+"""
+Submissions endpoint — classify, match, and store to database.
+"""
+import logging
+from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, desc
 from sqlalchemy.orm import selectinload
-from pydantic import BaseModel, Field
-from typing import Optional, List
-from datetime import datetime
+from sqlalchemy import select, desc
 
 from ..db.database import get_db
-from ..db.models import Submission, BudgetMatch, Channel, MatchStatus
+from ..db.models import Submission, BudgetMatch, MatchStatus, Channel
 from ..services.classifier import classify_citizen_input
-from ..services.translator import translate_to_english
 from ..services.matcher import match_citizen_to_budget
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/submissions", tags=["submissions"])
 
 
-# ── Request / Response Schemas ──
-
-class SubmissionCreate(BaseModel):
-    text: str = Field(..., min_length=5, max_length=2000, description="Citizen's raw input text")
-    ward: str = Field(default="Umoja I", max_length=100)
-    channel: str = Field(default="Web Form", pattern="^(SMS|USSD|WhatsApp|Web Form|Baraza|Voice|Image)$")
-
-
-class ClassificationPreview(BaseModel):
-    text: str = Field(..., min_length=5, max_length=2000)
-
-
-class SubmissionResponse(BaseModel):
-    id: str
-    ward: str
-    channel: str
-    citizen_input: str
-    sector: Optional[str]
-    sub_sector: Optional[str]
-    classification_confidence: float
-    budget_result: Optional[str]
-    status: Optional[str]
-    similarity_score: Optional[float]
-    submitted_at: str
-
-    class Config:
-        from_attributes = True
-
-
-class SubmissionListResponse(BaseModel):
-    total: int
-    submissions: List[SubmissionResponse]
-
-
-class ClassifyResponse(BaseModel):
-    sector: str
-    sub_sector: str
-    confidence: float
-    reasoning: str
-
-
-# ── Endpoints ──
-
-@router.post("/classify", response_model=ClassifyResponse)
-async def classify_text(payload: ClassificationPreview):
-    """
-    Live classification preview — called as the user types in the Input page.
-    Returns sector, sub_sector, and confidence without saving anything.
-    """
-    result = await classify_citizen_input(payload.text)
-    return ClassifyResponse(**result)
-
-
-@router.post("", response_model=SubmissionResponse, status_code=201)
+@router.post("")
 async def create_submission(
-    payload: SubmissionCreate,
+    payload: dict,
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Full submission pipeline:
-    1. Translate Sheng/Swahili if needed
-    2. Classify with DeepSeek
-    3. Match against budget lines in Pinecone
-    4. Save to PostgreSQL
-    5. Return the complete result
+    Create a new citizen submission.
     
-    Called by: Web form, SMS webhook, USSD webhook, WhatsApp webhook.
+    1. Classify the text
+    2. Match against budget (Qdrant vector search)
+    3. Store both submission and match to database
+    
+    Request: {text, ward, channel}
+    Returns: submission record with match result
     """
-    # ── Step 1: Translate if needed ──
-    translation = await translate_to_english(payload.text)
-    clean_text = translation["translated_text"]
+    text = payload.get("text", "").strip()
+    if not text:
+        raise HTTPException(400, "Text is required")
 
-    # ── Step 2: Classify ──
-    classification = await classify_citizen_input(clean_text)
+    ward = payload.get("ward", "Umoja I")
+    channel = payload.get("channel", "Web Form")
 
-    # ── Step 3: Match against budget ──
-    match_result = await match_citizen_to_budget(
-        citizen_text=clean_text,
-        predicted_sector=classification["sector"],
-        predicted_sub_sector=classification["sub_sector"],
-        ward=payload.ward,
-    )
+    try:
+        # 1. Classify
+        logger.info(f"🏷️ Classifying: {text[:50]}...")
+        classification = await classify_citizen_input(text)
 
-    # ── Step 4: Persist ──
-    submission = Submission(
-        ward=payload.ward,
-        channel=Channel(payload.channel),
-        citizen_input=payload.text,  # Store original text
-        original_language=translation["original_language"],
-        translated_input=clean_text if translation["was_translated"] else None,
-        sector=classification["sector"],
-        sub_sector=classification["sub_sector"],
-        classification_confidence=classification["confidence"],
-    )
-    db.add(submission)
-    await db.flush()  # Get the generated ID
+        # 2. Create submission record
+        submission = Submission(
+            ward=ward,
+            channel=channel,
+            citizen_input=text,
+            sector=classification["sector"],
+            sub_sector=classification["sub_sector"],
+            classification_confidence=classification["confidence"],
+        )
+        db.add(submission)
+        await db.flush()  # Get ID without committing yet
 
-    budget_match = BudgetMatch(
-        submission_id=submission.id,
-        matched_line_id=match_result["matched_line_id"],
-        matched_sector=match_result["matched_sector"],
-        matched_description=match_result["matched_description"],
-        matched_amount_ksh=match_result["matched_amount_ksh"],
-        matched_amount_requested_ksh=match_result["matched_amount_requested_ksh"],
-        budget_result=match_result["budget_result"],
-        status=MatchStatus(match_result["status"]),
-        similarity_score=match_result["similarity_score"],
-        alternative_matches=match_result["alternative_matches"],
-    )
-    db.add(budget_match)
-
-    await db.flush()
-
-    return SubmissionResponse(
-        id=submission.id,
-        ward=submission.ward,
-        channel=submission.channel.value,
-        citizen_input=submission.citizen_input,
-        sector=submission.sector,
-        sub_sector=submission.sub_sector,
-        classification_confidence=submission.classification_confidence,
-        budget_result=budget_match.budget_result,
-        status=budget_match.status.value,
-        similarity_score=budget_match.similarity_score,
-        submitted_at=submission.submitted_at.isoformat(),
-    )
-
-
-@router.get("", response_model=SubmissionListResponse)
-async def list_submissions(
-    ward: Optional[str] = Query(None, description="Filter by ward"),
-    sector: Optional[str] = Query(None, description="Filter by sector"),
-    channel: Optional[str] = Query(None, description="Filter by channel"),
-    status: Optional[str] = Query(None, description="Filter by match status"),
-    search: Optional[str] = Query(None, description="Search in citizen input"),
-    limit: int = Query(50, ge=1, le=200),
-    offset: int = Query(0, ge=0),
-    db: AsyncSession = Depends(get_db),
-):
-    """
-    List all submissions with optional filters.
-    Called by the Submissions page and CSO dashboard.
-    """
-    query = select(Submission).options(selectinload(Submission.match))
-
-    if ward:
-        query = query.where(Submission.ward.ilike(f"%{ward}%"))
-    if sector:
-        query = query.where(Submission.sector == sector)
-    if channel:
-        query = query.where(Submission.channel == Channel(channel))
-    if search:
-        query = query.where(Submission.citizen_input.ilike(f"%{search}%"))
-
-    # Status filter requires joining with BudgetMatch
-    if status:
-        query = (
-            query.join(BudgetMatch)
-            .where(BudgetMatch.status == MatchStatus(status))
+        # 3. Match against budget
+        logger.info(f"🔍 Matching against budget...")
+        match_result = await match_citizen_to_budget(
+            text,
+            classification["sector"],
+            classification["sub_sector"],
+            ward,
         )
 
-    # Count total
-    count_query = select(func.count()).select_from(query.subquery())
-    total_result = await db.execute(count_query)
-    total = total_result.scalar()
+        # 4. Create match record
+        budget_match = BudgetMatch(
+            submission_id=submission.id,
+            matched_line_id=match_result.get("matched_line_id"),
+            matched_sector=match_result.get("matched_sector"),
+            matched_description=match_result.get("matched_description"),
+            matched_amount_ksh=match_result.get("matched_amount_ksh"),
+            budget_result=match_result.get("budget_result"),
+            status=match_result.get("status", "ignored"),
+            similarity_score=match_result.get("similarity_score", 0.0),
+            alternative_matches=match_result.get("alternative_matches"),
+        )
+        db.add(budget_match)
 
-    # Fetch page
-    query = query.order_by(desc(Submission.submitted_at)).offset(offset).limit(limit)
-    result = await db.execute(query)
+        # 5. Commit both
+        await db.commit()
+        await db.refresh(submission, ["match"])
+
+        logger.info(f"✅ Created submission {submission.id} with status {budget_match.status}")
+
+        return {
+            "id": submission.id,
+            "ward": submission.ward,
+            "channel": submission.channel,
+            "citizen_input": submission.citizen_input,
+            "sector": submission.sector,
+            "sub_sector": submission.sub_sector,
+            "classification_confidence": submission.classification_confidence,
+            "submitted_at": submission.submitted_at.isoformat(),
+            "match": {
+                "status": budget_match.status,
+                "budget_result": budget_match.budget_result,
+                "similarity_score": budget_match.similarity_score,
+            },
+        }
+
+    except Exception as e:
+        logger.error(f"Submission error: {e}")
+        await db.rollback()
+        raise HTTPException(500, f"Failed to create submission: {str(e)[:100]}")
+
+
+@router.get("")
+async def list_submissions(
+    db: AsyncSession = Depends(get_db),
+    skip: int = 0,
+    limit: int = 50,
+):
+    """List all submissions with their matches."""
+    result = await db.execute(
+        select(Submission)
+        .options(selectinload(Submission.match))
+        .order_by(desc(Submission.created_at))
+        .offset(skip)
+        .limit(limit)
+    )
     submissions = result.scalars().all()
 
-    return SubmissionListResponse(
-        total=total,
-        submissions=[
-            SubmissionResponse(
-                id=s.id,
-                ward=s.ward,
-                channel=s.channel.value,
-                citizen_input=s.citizen_input,
-                sector=s.sector,
-                sub_sector=s.sub_sector,
-                classification_confidence=s.classification_confidence,
-                budget_result=s.match.budget_result if s.match else None,
-                status=s.match.status.value if s.match else None,
-                similarity_score=s.match.similarity_score if s.match else None,
-                submitted_at=s.submitted_at.isoformat(),
-            )
-            for s in submissions
-        ],
-    )
+    return [
+        {
+            "id": s.id,
+            "ward": s.ward,
+            "channel": s.channel,
+            "citizen_input": s.citizen_input,
+            "sector": s.sector,
+            "sub_sector": s.sub_sector,
+            "classification_confidence": s.classification_confidence,
+            "submitted_at": s.submitted_at.isoformat(),
+            "match": {
+                "status": s.match.status if s.match else None,
+                "budget_result": s.match.budget_result if s.match else None,
+                "similarity_score": s.match.similarity_score if s.match else None,
+            } if s.match else None,
+        }
+        for s in submissions
+    ]
 
 
-@router.get("/{submission_id}", response_model=SubmissionResponse)
+@router.get("/{submission_id}")
 async def get_submission(
     submission_id: str,
     db: AsyncSession = Depends(get_db),
 ):
-    """Get a single submission with its match."""
+    """Get a specific submission with its match."""
     result = await db.execute(
-        select(Submission).where(Submission.id == submission_id)
+        select(Submission)
+        .options(selectinload(Submission.match))
+        .where(Submission.id == submission_id)
     )
     submission = result.scalar_one_or_none()
 
     if not submission:
-        raise HTTPException(404, f"Submission {submission_id} not found")
+        raise HTTPException(404, "Submission not found")
 
-    return SubmissionResponse(
-        id=submission.id,
-        ward=submission.ward,
-        channel=submission.channel.value,
-        citizen_input=submission.citizen_input,
-        sector=submission.sector,
-        sub_sector=submission.sub_sector,
-        classification_confidence=submission.classification_confidence,
-        budget_result=submission.match.budget_result if submission.match else None,
-        status=submission.match.status.value if submission.match else None,
-        similarity_score=submission.match.similarity_score if submission.match else None,
-        submitted_at=submission.submitted_at.isoformat(),
-    )
+    return {
+        "id": submission.id,
+        "ward": submission.ward,
+        "channel": submission.channel,
+        "citizen_input": submission.citizen_input,
+        "sector": submission.sector,
+        "sub_sector": submission.sub_sector,
+        "classification_confidence": submission.classification_confidence,
+        "submitted_at": submission.submitted_at.isoformat(),
+        "match": {
+            "status": submission.match.status if submission.match else None,
+            "budget_result": submission.match.budget_result if submission.match else None,
+            "similarity_score": submission.match.similarity_score if submission.match else None,
+        } if submission.match else None,
+    }
+    
+# routers/submissions.py — Add this endpoint BEFORE the existing POST "" route
+
+@router.post("/classify")
+async def classify_only(payload: dict):
+    """
+    Lightweight classification preview — no DB write.
+    Used by the frontend for real-time classification as the user types.
+    """
+    text = payload.get("text", "").strip()
+    if not text:
+        return {"sector": "Uncategorized", "sub_sector": "Needs Review", "confidence": 0.0}
+    return await classify_citizen_input(text)

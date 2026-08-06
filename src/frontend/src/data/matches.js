@@ -22,7 +22,7 @@ export function useBudgetMatches(params = {}) {
         sector: m.sector,
         subSector: m.sub_sector ?? m.subSector,
         confidence: m.classification_confidence ?? m.confidence ?? 0,
-        budgetResult: m.budget_result ?? m.budgetResult,
+        budgetResult: m.budget_result ?? m.budgetResult ?? "No matching budget line found.",
         status: m.status ?? "ignored",
         similarityScore: m.similarity_score ?? m.similarityScore,
         matchedLineId: m.matched_line_id ?? m.matchedLineId,

@@ -88,3 +88,44 @@ class BudgetMatch(Base):
 
     # Relationship back to submission
     submission: Mapped["Submission"] = relationship(back_populates="match")
+    
+# ──────────────────────────────────────────────────────────────────
+# Add AFTER the existing BudgetMatch class (around line 95)
+# ──────────────────────────────────────────────────────────────────
+
+
+class DocumentStatus(str, enum.Enum):
+    uploading = "uploading"
+    ready = "ready"
+    failed = "failed"
+    archived = "archived"
+
+
+class BudgetDocument(Base):
+    """Tracks uploaded budget PDFs — prevents duplicates, enables multi-doc."""
+    __tablename__ = "budget_documents"
+
+    id: Mapped[str] = mapped_column(
+        String(20), primary_key=True,
+        default=lambda: f"DOC-{uuid.uuid4().hex[:8].upper()}"
+    )
+    filename: Mapped[str] = mapped_column(String(255), nullable=False)
+    file_hash: Mapped[str] = mapped_column(
+        String(64), unique=True, nullable=False, index=True
+    )
+    fiscal_year: Mapped[str] = mapped_column(String(20), default="2024/25")
+    county: Mapped[str] = mapped_column(String(100), default="Nairobi")
+
+    size_mb: Mapped[float] = mapped_column(nullable=False)
+    total_pages: Mapped[int] = mapped_column(default=0)
+    total_chunks: Mapped[int] = mapped_column(default=0)
+
+    status: Mapped[DocumentStatus] = mapped_column(
+        SAEnum(DocumentStatus), default=DocumentStatus.uploading
+    )
+
+    uploaded_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow
+    )
+    completed_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
+    error_message: Mapped[str] = mapped_column(Text, nullable=True)

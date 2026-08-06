@@ -1,52 +1,45 @@
+"""
+Lightweight classifier — DeepSeek for accurate classification,
+fallback to keyword rules if API is unavailable.
+"""
 import json
-import openai
+import logging
 from typing import Optional
+
+import openai
 from ..config import config
+
+logger = logging.getLogger(__name__)
 
 client = openai.OpenAI(
     api_key=config.DEEPSEEK_API_KEY,
     base_url=config.DEEPSEEK_BASE_URL,
 )
 
-CLASSIFICATION_PROMPT = """You are a Kenyan county budget classifier for Nairobi City County.
-Classify citizen requests into a sector and sub-sector.
+CLASSIFICATION_PROMPT = """You are a Kenyan county budget classifier.
+Classify this citizen request into a sector and sub-sector.
 
-AVAILABLE SECTORS AND SUB-SECTORS:
+SECTORS:
 - Health: Maternal Care, Service Delivery, NHIF, Health Infrastructure
-- Education: Early Childhood Development, Schools & Learning, Bursaries & Scholarships, Tertiary
-- Infrastructure: Roads & Transport, Public Works, Housing & Urban Development, Drainage
-- Water & Sanitation: Water Supply, Sewerage, Sanitation & Toilets, Garbage Collection
-- Agriculture: Livestock Health, Crop Farming, Fisheries, Veterinary Services
-- Energy: Rural Electrification, Street Lighting, Solar Power
-- Security: Community Safety, Policing, Fire Services, Disaster Management
-- Governance: Administration, ICT, Civic Education, Public Participation
+- Education: ECD, Schools & Learning, Bursaries, Tertiary
+- Infrastructure: Roads & Transport, Public Works, Housing, Drainage
+- Water & Sanitation: Water Supply, Sewerage, Sanitation, Garbage
+- Agriculture: Livestock, Crop Farming, Fisheries, Veterinary
+- Energy: Rural Electrification, Street Lighting, Solar
+- Security: Community Safety, Policing, Fire Services
+- Governance: Administration, ICT, Civic Education
 - Trade: Markets, Trade Licenses, Cooperatives
-- Environment: Waste Management, Parks & Green Spaces, Tree Planting
-- Social Protection: Youth Programs, Women Empowerment, PWD Support, Elderly Support
-- Uncategorized: if genuinely unclear
+- Environment: Waste Management, Parks, Tree Planting
+- Social Protection: Youth, Women, PWD, Elderly
+- Uncategorized: if unclear
 
-RULES:
-1. If the text mentions a specific facility (dispensary, school, road, market), use that to infer the sector.
-2. If the text is in Swahili or Sheng, still classify based on meaning.
-3. Confidence should reflect how clearly the text maps to one sector.
-4. Be specific with sub-sectors — "dispensary" → "Service Delivery", not just "Health".
-
-Respond ONLY with a JSON object. No markdown, no explanation:
-{"sector": "...", "sub_sector": "...", "confidence": 0.0-1.0, "reasoning": "one short sentence"}"""
+Return ONLY JSON: {"sector":"...","sub_sector":"...","confidence":0.0-1.0}"""
 
 
 async def classify_citizen_input(text: str) -> dict:
-    """
-    Use DeepSeek to classify a citizen's budget request into sector/sub-sector.
-    Returns {sector, sub_sector, confidence, reasoning}.
-    """
+    """Classify citizen input. Falls back to keywords if API fails."""
     if not text or len(text.strip()) < 5:
-        return {
-            "sector": "Uncategorized",
-            "sub_sector": "Needs Review",
-            "confidence": 0.0,
-            "reasoning": "Input too short to classify",
-        }
+        return {"sector": "Uncategorized", "sub_sector": "Needs Review", "confidence": 0.0}
 
     try:
         response = client.chat.completions.create(
@@ -56,11 +49,9 @@ async def classify_citizen_input(text: str) -> dict:
                 {"role": "user", "content": text.strip()},
             ],
             temperature=0.0,
-            max_tokens=300,
+            max_tokens=200,
         )
-
         content = response.choices[0].message.content.strip()
-        # Strip markdown fences if present
         if content.startswith("```"):
             content = content.split("\n", 1)[1]
             if content.endswith("```"):
@@ -72,22 +63,30 @@ async def classify_citizen_input(text: str) -> dict:
             "sector": result.get("sector", "Uncategorized"),
             "sub_sector": result.get("sub_sector", "Needs Review"),
             "confidence": float(result.get("confidence", 0.0)),
-            "reasoning": result.get("reasoning", ""),
         }
 
-    except (json.JSONDecodeError, KeyError) as e:
-        print(f"Classification parse error: {e}. Raw: {content[:200] if 'content' in dir() else 'N/A'}")
-        return {
-            "sector": "Uncategorized",
-            "sub_sector": "Needs Review",
-            "confidence": 0.0,
-            "reasoning": "Classification failed — needs manual review",
-        }
     except Exception as e:
-        print(f"Classification API error: {e}")
-        return {
-            "sector": "Uncategorized",
-            "sub_sector": "Needs Review",
-            "confidence": 0.0,
-            "reasoning": f"API error: {str(e)[:100]}",
-        }
+        logger.warning("Classification API failed: %s. Using fallback.", e)
+        return _fallback(text)
+
+
+def _fallback(text: str) -> dict:
+    """Keyword-based fallback classification."""
+    t = text.lower()
+    mapping = [
+        (("health", "clinic", "dispensary", "maternity", "nhif", "hospital"), ("Health", "Service Delivery")),
+        (("school", "teacher", "student", "learning", "ecd", "bursar"), ("Education", "Schools & Learning")),
+        (("road", "transport", "bridge", "pothole", "drain"), ("Infrastructure", "Roads & Transport")),
+        (("water", "tap", "pipe", "sewer", "sanitation"), ("Water & Sanitation", "Water Supply")),
+        (("security", "police", "safety", "crime", "patrol"), ("Security", "Community Safety")),
+        (("market", "vendor", "trading", "commerce"), ("Trade", "Markets")),
+        (("waste", "garbage", "clean", "tree", "environment"), ("Environment", "Waste Management")),
+        (("youth", "women", "pwd", "elderly", "social"), ("Social Protection", "Youth Programs")),
+        (("electric", "lighting", "solar", "power"), ("Energy", "Rural Electrification")),
+        (("farm", "crop", "livestock", "fish"), ("Agriculture", "Crop Farming")),
+        (("ict", "governance", "admin", "civic"), ("Governance", "Administration")),
+    ]
+    for keywords, (sector, sub) in mapping:
+        if any(k in t for k in keywords):
+            return {"sector": sector, "sub_sector": sub, "confidence": 0.6}
+    return {"sector": "Uncategorized", "sub_sector": "Needs Review", "confidence": 0.0}

@@ -18,12 +18,14 @@ export function useSubmissions(params = {}) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
+  // store.js — fix the refresh function
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
       const data = await fetchSubmissions(params);
-      // Map API snake_case → frontend camelCase for backward compatibility
-      const mapped = data.submissions.map(_mapSubmission);
+      // Backend returns a plain array, NOT { submissions: [...] }
+      const list = Array.isArray(data) ? data : (data.submissions || []);
+      const mapped = list.map(_mapSubmission);
       setSubmissions(mapped);
       _notify(mapped);
     } catch (err) {
@@ -90,7 +92,7 @@ function _mapSubmission(s) {
     sector: s.sector,
     subSector: s.sub_sector ?? s.subSector,
     confidence: s.classification_confidence ?? s.confidence ?? 0,
-    budgetResult: s.budget_result ?? s.budgetResult,
+    budgetResult: s.budget_result ?? s.budgetResult ?? "No budget match found.",
     status: s.status,
     similarityScore: s.similarity_score ?? s.similarityScore,
     submittedAt: s.submitted_at

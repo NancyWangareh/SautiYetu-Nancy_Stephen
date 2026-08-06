@@ -12,14 +12,14 @@ async function request(path, options = {}) {
   return res.json();
 }
 
-// Classification
+// ── Classification (preview) ──
 export const classifyInput = (text) =>
   request("/api/submissions/classify", {
     method: "POST",
     body: JSON.stringify({ text }),
   });
 
-// Submissions
+// ── Submissions ──
 export const createSubmission = ({ text, ward, channel }) =>
   request("/api/submissions", {
     method: "POST",
@@ -34,7 +34,7 @@ export const fetchSubmissions = (params = {}) => {
 export const fetchSubmission = (id) =>
   request(`/api/submissions/${id}`);
 
-// Matches
+// ── Matches ──
 export const fetchMatches = (params = {}) => {
   const qs = new URLSearchParams(params).toString();
   return request(`/api/matches${qs ? `?${qs}` : ""}`);
@@ -45,3 +45,36 @@ export const fetchMatchStats = (ward) =>
 
 export const rematchSubmission = (id) =>
   request(`/api/matches/rematch/${id}`, { method: "POST" });
+
+// ── Budget Search ──
+export const searchBudget = (query, topK = 5) =>
+  request("/api/budget/search", {
+    method: "POST",
+    body: JSON.stringify({ query, top_k: topK }),
+  });
+
+// ── Documents ──
+export const uploadBudget = (file, fiscalYear = "2024/25") => {
+  const formData = new FormData();
+  formData.append("file", file);
+  // You can append fiscal_year if your backend supports it as form field
+  return fetch(`${API}/api/budget/upload?fiscal_year=${encodeURIComponent(fiscalYear)}`, {
+    method: "POST",
+    body: formData,
+  }).then((res) => {
+    if (!res.ok) throw new Error(res.statusText);
+    return res.json();
+  });
+};
+
+export const getBudgetStatus = (jobId) =>
+  request(`/api/budget/status/${jobId}`);
+
+export const fetchDocuments = () =>
+  request("/api/budget/documents");
+
+export const fetchDocument = (id) =>
+  request(`/api/budget/documents/${id}`);
+
+export const deleteDocument = (id) =>
+  request(`/api/budget/documents/${id}`, { method: "DELETE" });

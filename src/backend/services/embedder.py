@@ -1,120 +1,179 @@
 """
-Pluggable embedding service for SautiYetu.
-
-Switch between backends by setting EMBEDDING_BACKEND in .env:
-  - "local"   → sentence-transformers (free, runs on CPU, no API keys)
-  - "cohere"  → Cohere Embed API (managed, 1024-dim)
-  - "openai"  → OpenAI text-embedding-3-small (managed, 1536-dim)
-
-Exports:
-  - embed_text(text: str) -> list[float]
-  - EMBEDDING_DIM: int  (must match Pinecone index dimension!)
+Embedding service — wraps Sentence Transformers with batch support.
+Uses all-MiniLM-L6-v2 (384-dim) by default.
+Supports Cohere and OpenAI as optional backends.
 """
-
 import os
-from ..config import config
+import logging
+
+logger = logging.getLogger(__name__)
 
 BACKEND = os.getenv("EMBEDDING_BACKEND", "local").strip().lower()
+EMBEDDING_DIM = 384  # default, overridden per backend
 
 # ──────────────────────────────────────────────────────────────────
 # Backend: LOCAL — sentence-transformers (free, offline)
-# Model: all-MiniLM-L6-v2 — 384 dimensions, ~80MB
-# First call downloads the model (~20-30s), then cached in memory.
 # ──────────────────────────────────────────────────────────────────
 if BACKEND == "local":
     from sentence_transformers import SentenceTransformer
 
-    _model = None
+    class EmbeddingService:
+        """Lazy-loading Sentence Transformer wrapper with batch support."""
 
-    def _get_model():
-        global _model
-        if _model is None:
-            print("⏳ Loading embedding model (all-MiniLM-L6-v2)...")
-            _model = SentenceTransformer("all-MiniLM-L6-v2")
-            print("✅ Embedding model ready.")
-        return _model
+        def __init__(self, model_name: str | None = None):
+            self.model_name = model_name or "all-MiniLM-L6-v2"
+            self.model = None
+            self._vector_size: int | None = None
 
-    def embed_text(text: str):
-        """
-        Generate a 384-dim normalized embedding vector.
-        Handles empty/short text gracefully.
-        """
-        if not text or not text.strip():
-            text = "empty"
-        return _get_model().encode(
-            text.strip(),
-            normalize_embeddings=True,
-        ).tolist()
+        def _load(self):
+            if self.model is not None:
+                return
+            logger.info("Loading embedding model: %s", self.model_name)
+            self.model = SentenceTransformer(self.model_name)
+            test_vec = self.model.encode("test", show_progress_bar=False)
+            self._vector_size = len(test_vec)
+
+        @property
+        def vector_size(self) -> int:
+            if self._vector_size is None:
+                self._load()
+            return self._vector_size
+
+        def embed_texts(
+            self, texts: list[str], show_progress: bool = True
+        ) -> list[list[float]]:
+            """Batch-embed a list of texts. Fast!"""
+            self._load()
+            embeddings = self.model.encode(
+                texts,
+                show_progress_bar=show_progress,
+                normalize_embeddings=True,
+            )
+            return embeddings.tolist()
+
+        def embed_query(self, query: str) -> list[float]:
+            """Embed a single search query."""
+            self._load()
+            embedding = self.model.encode(
+                query,
+                show_progress_bar=False,
+                normalize_embeddings=True,
+            )
+            return embedding.tolist()
 
     EMBEDDING_DIM = 384
 
 # ──────────────────────────────────────────────────────────────────
-# Backend: COHERE — Cohere Embed API
-# Model: embed-english-v3.0 — 1024 dimensions
-# Free trial key: dashboard.cohere.com
+# Backend: COHERE
 # ──────────────────────────────────────────────────────────────────
 elif BACKEND == "cohere":
     import cohere
 
-    _co = None
+    class EmbeddingService:
+        def __init__(self, model_name: str | None = None):
+            self.model_name = "embed-english-v3.0"
+            self._client = None
 
-    def _get_client():
-        global _co
-        if _co is None:
+        def _load(self):
+            if self._client is not None:
+                return
             api_key = os.getenv("COHERE_API_KEY")
             if not api_key:
-                raise RuntimeError(
-                    "COHERE_API_KEY not set. Add it to .env or switch EMBEDDING_BACKEND=local"
-                )
-            _co = cohere.ClientV2(api_key=api_key)
-        return _co
+                raise RuntimeError("COHERE_API_KEY not set")
+            self._client = cohere.ClientV2(api_key=api_key)
 
-    def embed_text(text: str):
-        if not text or not text.strip():
-            text = "empty"
-        resp = _get_client().embed(
-            model="embed-english-v3.0",
-            texts=[text.strip()],
-            input_type="search_query",       # for citizen queries
-            embedding_types=["float"],
-        )
-        return resp.embeddings.float[0]
+        @property
+        def vector_size(self) -> int:
+            return 1024
+
+        def embed_texts(self, texts, show_progress=True):
+            self._load()
+            all_embeddings = []
+            batch_size = 96
+            for i in range(0, len(texts), batch_size):
+                batch = texts[i : i + batch_size]
+                resp = self._client.embed(
+                    model=self.model_name,
+                    texts=batch,
+                    input_type="search_document",
+                    embedding_types=["float"],
+                )
+                all_embeddings.extend(resp.embeddings.float)
+            return all_embeddings
+
+        def embed_query(self, query):
+            self._load()
+            resp = self._client.embed(
+                model=self.model_name,
+                texts=[query],
+                input_type="search_query",
+                embedding_types=["float"],
+            )
+            return resp.embeddings.float[0]
 
     EMBEDDING_DIM = 1024
 
 # ──────────────────────────────────────────────────────────────────
-# Backend: OPENAI — text-embedding-3-small
-# 1536 dimensions, $0.02 per 1M tokens
+# Backend: OPENAI
 # ──────────────────────────────────────────────────────────────────
 elif BACKEND == "openai":
     import openai
 
-    _client = None
+    class EmbeddingService:
+        def __init__(self, model_name: str | None = None):
+            self.model_name = "text-embedding-3-small"
+            self._client = None
 
-    def _get_client():
-        global _client
-        if _client is None:
+        def _load(self):
+            if self._client is not None:
+                return
             api_key = os.getenv("OPENAI_API_KEY")
             if not api_key:
-                raise RuntimeError(
-                    "OPENAI_API_KEY not set. Add it to .env or switch EMBEDDING_BACKEND=local"
-                )
-            _client = openai.OpenAI(api_key=api_key)
-        return _client
+                raise RuntimeError("OPENAI_API_KEY not set")
+            self._client = openai.OpenAI(api_key=api_key)
 
-    def embed_text(text: str):
-        if not text or not text.strip():
-            text = "empty"
-        resp = _get_client().embeddings.create(
-            model="text-embedding-3-small",
-            input=text.strip(),
-        )
-        return resp.data[0].embedding
+        @property
+        def vector_size(self) -> int:
+            return 1536
+
+        def embed_texts(self, texts, show_progress=True):
+            self._load()
+            resp = self._client.embeddings.create(
+                model=self.model_name, input=texts
+            )
+            return [d.embedding for d in resp.data]
+
+        def embed_query(self, query):
+            self._load()
+            resp = self._client.embeddings.create(
+                model=self.model_name, input=query
+            )
+            return resp.data[0].embedding
 
     EMBEDDING_DIM = 1536
 
 else:
-    raise ValueError(
-        f"Unknown EMBEDDING_BACKEND='{BACKEND}'. "
-        "Set to 'local', 'cohere', or 'openai' in your .env file."
-    )
+    # Fallback to local
+    from sentence_transformers import SentenceTransformer
+
+    class EmbeddingService:
+        def __init__(self, model_name=None):
+            self.model_name = "all-MiniLM-L6-v2"
+            self.model = SentenceTransformer(self.model_name)
+            self._vector_size = 384
+
+        @property
+        def vector_size(self):
+            return self._vector_size
+
+        def embed_texts(self, texts, show_progress=True):
+            return self.model.encode(
+                texts, show_progress_bar=show_progress, normalize_embeddings=True
+            ).tolist()
+
+        def embed_query(self, query):
+            return self.model.encode(
+                query, show_progress_bar=False, normalize_embeddings=True
+            ).tolist()
+
+    EMBEDDING_DIM = 384

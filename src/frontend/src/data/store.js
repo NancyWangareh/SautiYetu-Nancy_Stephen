@@ -1,102 +1,112 @@
-import { useState, useEffect, useCallback } from "react";
-import { fetchSubmissions, fetchSubmission } from "./api";
+import { useSyncExternalStore } from "react";
 
-// Cache for live-updating after a new submission
-let _submissions = [];
-const _listeners = new Set();
+const API_BASE = "http://localhost:8000";
 
-function _notify(submissions) {
-  _submissions = submissions;
-  for (const fn of _listeners) fn();
+/* ─── Submissions Store ─── */
+let records = [];
+let loaded = false;
+let loading = false;
+const listeners = new Set();
+
+function emit() {
+  for (const fn of listeners) fn();
 }
 
-/**
- * React hook — fetches all submissions from the backend API.
- */
-export function useSubmissions(params = {}) {
-  const [submissions, setSubmissions] = useState(_submissions);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+/** Fetch all submissions from the backend */
+export async function fetchSubmissions() {
+  if (loading) return;
+  loading = true;
 
-  // store.js — fix the refresh function
-  const refresh = useCallback(async () => {
-    setLoading(true);
-    try {
-      const data = await fetchSubmissions(params);
-      // Backend returns a plain array, NOT { submissions: [...] }
-      const list = Array.isArray(data) ? data : (data.submissions || []);
-      const mapped = list.map(_mapSubmission);
-      setSubmissions(mapped);
-      _notify(mapped);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
+  try {
+    const res = await fetch(`${API_BASE}/api/submissions`);
+    if (res.ok) {
+      records = await res.json();
+      loaded = true;
     }
-  }, [JSON.stringify(params)]);
-
-  useEffect(() => {
-    refresh();
-  }, [refresh]);
-
-  // Also listen for push updates
-  useEffect(() => {
-    const fn = () => setSubmissions(_submissions);
-    _listeners.add(fn);
-    return () => _listeners.delete(fn);
-  }, []);
-
-  return { submissions, loading, error, refresh };
+  } catch (err) {
+    console.warn("Failed to load submissions from API:", err.message);
+  } finally {
+    loading = false;
+    emit();
+  }
 }
 
-/**
- * Get a single submission by ID.
- */
-export function useSubmission(id) {
-  const [submission, setSubmission] = useState(null);
-  const [loading, setLoading] = useState(true);
+/** Submit a new citizen input via the backend */
+export async function submitToBackend(text, ward = "Umoja I", channel = "Web Form") {
+  const res = await fetch(`${API_BASE}/api/submissions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text, ward, channel }),
+  });
 
-  useEffect(() => {
-    fetchSubmission(id)
-      .then((data) => setSubmission(_mapSubmission(data)))
-      .catch(() => setSubmission(null))
-      .finally(() => setLoading(false));
-  }, [id]);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `Server error: ${res.status}`);
+  }
 
-  return { submission, loading };
+  const record = await res.json();
+  records = [record, ...records];
+  emit();
+  return record;
 }
 
-/**
- * Add a submission to the local cache (for instant UI update after POST).
- */
-export function addSubmissionToCache(submission) {
-  _submissions = [_mapSubmission(submission), ..._submissions];
-  for (const fn of _listeners) fn();
-}
-
-/**
- * Get the current count (from cache).
- */
 export function getSubmissionCount() {
-  return _submissions.length;
+  return records.length;
 }
 
-// ── Helpers ──
+function subscribe(cb) {
+  listeners.add(cb);
+  return () => listeners.delete(cb);
+}
 
-function _mapSubmission(s) {
-  return {
-    id: s.id,
-    ward: s.ward,
-    channel: s.channel,
-    citizenInput: s.citizen_input ?? s.citizenInput,
-    sector: s.sector,
-    subSector: s.sub_sector ?? s.subSector,
-    confidence: s.classification_confidence ?? s.confidence ?? 0,
-    budgetResult: s.budget_result ?? s.budgetResult ?? "No budget match found.",
-    status: s.status,
-    similarityScore: s.similarity_score ?? s.similarityScore,
-    submittedAt: s.submitted_at
-      ? s.submitted_at.slice(0, 10)
-      : s.submittedAt,
-  };
+function getSnapshot() {
+  return records;
+}
+
+export function useSubmissions() {
+  const data = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+  if (!loaded && !loading) {
+    fetchSubmissions();
+  }
+  return data;
+}
+
+/* ─── Wards Store ─── */
+let wards = [];
+let wardsLoaded = false;
+const wardListeners = new Set();
+
+function wardEmit() {
+  for (const fn of wardListeners) fn();
+}
+
+export async function fetchWards() {
+  if (wardsLoaded) return;
+  try {
+    const res = await fetch(`${API_BASE}/api/wards`);
+    if (res.ok) {
+      wards = await res.json();
+      wardsLoaded = true;
+    }
+  } catch (err) {
+    console.warn("Failed to load wards from API:", err.message);
+  }
+  wardEmit();
+}
+
+function wardsSubscribe(cb) {
+  wardListeners.add(cb);
+  return () => wardListeners.delete(cb);
+}
+
+function wardsGetSnapshot() {
+  return wards;
+}
+
+export function useWards() {
+  const data = useSyncExternalStore(wardsSubscribe, wardsGetSnapshot, wardsGetSnapshot);
+  if (!wardsLoaded) {
+    fetchWards();
+  }
+  return data;
 }

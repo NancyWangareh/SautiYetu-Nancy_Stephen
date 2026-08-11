@@ -1,14 +1,25 @@
 fastapi
-uvicorn
-python-multipart
-pdfplumber
-openai
-supabase
-sqlalchemy
-asyncpg
-python-dotenv
+uvicorn[standard]
 pydantic
-sentence-transformers
-qdrant-client
-langchain-text-splitters
+pydantic-settings
+python-dotenv
+python-multipart
+
+# Database
+sqlalchemy[asyncio]
+asyncpg
 aiosqlite
+alembic
+
+# Vector store
+qdrant-client
+
+# Embeddings
+sentence-transformers
+
+# PDF parsing
+pdfplumber
+langchain-text-splitters
+
+# LLM
+openai

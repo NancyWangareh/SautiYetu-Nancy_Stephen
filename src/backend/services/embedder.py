@@ -1,179 +1,90 @@
 """
-Embedding service — wraps Sentence Transformers with batch support.
-Uses all-MiniLM-L6-v2 (384-dim) by default.
-Supports Cohere and OpenAI as optional backends.
+Embedding service — wraps Sentence Transformers for budget document embeddings.
+
+Uses intfloat/multilingual-e5-small (384-dim) which handles English +
+Swahili/local terms common in Kenyan budget documents.
 """
-import os
+
 import logging
 
 logger = logging.getLogger(__name__)
 
-BACKEND = os.getenv("EMBEDDING_BACKEND", "local").strip().lower()
-EMBEDDING_DIM = 384  # default, overridden per backend
+PRIMARY_MODEL = "intfloat/multilingual-e5-small"
+FALLBACK_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 
-# ──────────────────────────────────────────────────────────────────
-# Backend: LOCAL — sentence-transformers (free, offline)
-# ──────────────────────────────────────────────────────────────────
-if BACKEND == "local":
-    from sentence_transformers import SentenceTransformer
+# E5 models require prefixing: "query: " for queries, "passage: " for docs
+QUERY_PREFIX = "query: "
+PASSAGE_PREFIX = "passage: "
 
-    class EmbeddingService:
-        """Lazy-loading Sentence Transformer wrapper with batch support."""
 
-        def __init__(self, model_name: str | None = None):
-            self.model_name = model_name or "all-MiniLM-L6-v2"
-            self.model = None
-            self._vector_size: int | None = None
+class EmbeddingService:
+    """Lazy-loading Sentence Transformer wrapper."""
 
-        def _load(self):
-            if self.model is not None:
-                return
+    def __init__(self, model_name: str | None = None):
+        self.model_name = model_name or PRIMARY_MODEL
+        self.model = None
+        self._vector_size: int | None = None
+        self._uses_prefix = "e5" in self.model_name.lower()
+
+    def _load(self):
+        """Lazy-load the model on first use."""
+        if self.model is not None:
+            return
+
+        from sentence_transformers import SentenceTransformer
+
+        try:
             logger.info("Loading embedding model: %s", self.model_name)
             self.model = SentenceTransformer(self.model_name)
-            test_vec = self.model.encode("test", show_progress_bar=False)
-            self._vector_size = len(test_vec)
-
-        @property
-        def vector_size(self) -> int:
-            if self._vector_size is None:
-                self._load()
-            return self._vector_size
-
-        def embed_texts(
-            self, texts: list[str], show_progress: bool = True
-        ) -> list[list[float]]:
-            """Batch-embed a list of texts. Fast!"""
-            self._load()
-            embeddings = self.model.encode(
-                texts,
-                show_progress_bar=show_progress,
-                normalize_embeddings=True,
-            )
-            return embeddings.tolist()
-
-        def embed_query(self, query: str) -> list[float]:
-            """Embed a single search query."""
-            self._load()
-            embedding = self.model.encode(
-                query,
-                show_progress_bar=False,
-                normalize_embeddings=True,
-            )
-            return embedding.tolist()
-
-    EMBEDDING_DIM = 384
-
-# ──────────────────────────────────────────────────────────────────
-# Backend: COHERE
-# ──────────────────────────────────────────────────────────────────
-elif BACKEND == "cohere":
-    import cohere
-
-    class EmbeddingService:
-        def __init__(self, model_name: str | None = None):
-            self.model_name = "embed-english-v3.0"
-            self._client = None
-
-        def _load(self):
-            if self._client is not None:
-                return
-            api_key = os.getenv("COHERE_API_KEY")
-            if not api_key:
-                raise RuntimeError("COHERE_API_KEY not set")
-            self._client = cohere.ClientV2(api_key=api_key)
-
-        @property
-        def vector_size(self) -> int:
-            return 1024
-
-        def embed_texts(self, texts, show_progress=True):
-            self._load()
-            all_embeddings = []
-            batch_size = 96
-            for i in range(0, len(texts), batch_size):
-                batch = texts[i : i + batch_size]
-                resp = self._client.embed(
-                    model=self.model_name,
-                    texts=batch,
-                    input_type="search_document",
-                    embedding_types=["float"],
+        except Exception:
+            if self.model_name != FALLBACK_MODEL:
+                logger.warning(
+                    "Failed to load %s, falling back to %s",
+                    self.model_name,
+                    FALLBACK_MODEL,
                 )
-                all_embeddings.extend(resp.embeddings.float)
-            return all_embeddings
+                self.model_name = FALLBACK_MODEL
+                self._uses_prefix = False
+                self.model = SentenceTransformer(FALLBACK_MODEL)
+            else:
+                raise
 
-        def embed_query(self, query):
+        # Determine vector size from a test encoding
+        test_vec = self.model.encode("test", show_progress_bar=False)
+        self._vector_size = len(test_vec)
+        logger.info(
+            "Embedding model loaded: %s (dim=%d)", self.model_name, self._vector_size
+        )
+
+    @property
+    def vector_size(self) -> int:
+        if self._vector_size is None:
             self._load()
-            resp = self._client.embed(
-                model=self.model_name,
-                texts=[query],
-                input_type="search_query",
-                embedding_types=["float"],
-            )
-            return resp.embeddings.float[0]
+        assert self._vector_size is not None
+        return self._vector_size
 
-    EMBEDDING_DIM = 1024
+    def embed_texts(
+        self, texts: list[str], show_progress: bool = True
+    ) -> list[list[float]]:
+        """Batch-embed a list of document texts."""
+        self._load()
+        if self._uses_prefix:
+            texts = [f"{PASSAGE_PREFIX}{t}" for t in texts]
+        embeddings = self.model.encode(
+            texts,
+            show_progress_bar=show_progress,
+            normalize_embeddings=True,
+        )
+        return embeddings.tolist()
 
-# ──────────────────────────────────────────────────────────────────
-# Backend: OPENAI
-# ──────────────────────────────────────────────────────────────────
-elif BACKEND == "openai":
-    import openai
-
-    class EmbeddingService:
-        def __init__(self, model_name: str | None = None):
-            self.model_name = "text-embedding-3-small"
-            self._client = None
-
-        def _load(self):
-            if self._client is not None:
-                return
-            api_key = os.getenv("OPENAI_API_KEY")
-            if not api_key:
-                raise RuntimeError("OPENAI_API_KEY not set")
-            self._client = openai.OpenAI(api_key=api_key)
-
-        @property
-        def vector_size(self) -> int:
-            return 1536
-
-        def embed_texts(self, texts, show_progress=True):
-            self._load()
-            resp = self._client.embeddings.create(
-                model=self.model_name, input=texts
-            )
-            return [d.embedding for d in resp.data]
-
-        def embed_query(self, query):
-            self._load()
-            resp = self._client.embeddings.create(
-                model=self.model_name, input=query
-            )
-            return resp.data[0].embedding
-
-    EMBEDDING_DIM = 1536
-
-else:
-    # Fallback to local
-    from sentence_transformers import SentenceTransformer
-
-    class EmbeddingService:
-        def __init__(self, model_name=None):
-            self.model_name = "all-MiniLM-L6-v2"
-            self.model = SentenceTransformer(self.model_name)
-            self._vector_size = 384
-
-        @property
-        def vector_size(self):
-            return self._vector_size
-
-        def embed_texts(self, texts, show_progress=True):
-            return self.model.encode(
-                texts, show_progress_bar=show_progress, normalize_embeddings=True
-            ).tolist()
-
-        def embed_query(self, query):
-            return self.model.encode(
-                query, show_progress_bar=False, normalize_embeddings=True
-            ).tolist()
-
-    EMBEDDING_DIM = 384
+    def embed_query(self, query: str) -> list[float]:
+        """Embed a single search query."""
+        self._load()
+        if self._uses_prefix:
+            query = f"{QUERY_PREFIX}{query}"
+        embedding = self.model.encode(
+            query,
+            show_progress_bar=False,
+            normalize_embeddings=True,
+        )
+        return embedding.tolist()

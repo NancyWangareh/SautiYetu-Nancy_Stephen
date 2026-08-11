@@ -1,9 +1,19 @@
 import { useState } from "react";
-import { FileUp, Loader2, CheckCircle2, AlertCircle, FileText, Grid, Brain, Database } from "lucide-react";
+import {
+  FileUp,
+  Loader2,
+  CheckCircle2,
+  AlertCircle,
+  FileText,
+  Grid,
+  Brain,
+  Database,
+  Landmark,
+  FileCheck,
+} from "lucide-react";
 
-const API = "http://localhost:8000";
+const API_BASE = "http://localhost:8000";
 
-// Updated stages to match the NEW fast pipeline
 const STAGES = [
   { key: "parsing", label: "Parsing PDF pages...", icon: FileText },
   { key: "chunking", label: "Splitting into searchable chunks...", icon: Grid },
@@ -13,6 +23,8 @@ const STAGES = [
 
 function BudgetUpload() {
   const [file, setFile] = useState(null);
+  const [fiscalYear, setFiscalYear] = useState("2024/25");
+  const [budgetType, setBudgetType] = useState("proposed");
   const [jobId, setJobId] = useState(null);
   const [status, setStatus] = useState(null);
   const [polling, setPolling] = useState(false);
@@ -26,10 +38,10 @@ function BudgetUpload() {
     formData.append("file", file);
 
     try {
-      const res = await fetch(`${API}/api/budget/upload`, {
-        method: "POST",
-        body: formData,
-      });
+      const res = await fetch(
+        `${API_BASE}/api/budget/upload?fiscal_year=${encodeURIComponent(fiscalYear)}&budget_type=${encodeURIComponent(budgetType)}`,
+        { method: "POST", body: formData }
+      );
       if (!res.ok) {
         const err = await res.json().catch(() => ({ detail: "Upload failed" }));
         throw new Error(err.detail || "Upload failed");
@@ -46,7 +58,7 @@ function BudgetUpload() {
   function startPolling(id) {
     const interval = setInterval(async () => {
       try {
-        const res = await fetch(`${API}/api/budget/status/${id}`);
+        const res = await fetch(`${API_BASE}/api/budget/status/${id}`);
         const data = await res.json();
         setStatus(data);
 
@@ -74,16 +86,15 @@ function BudgetUpload() {
     <div className="mx-auto max-w-2xl px-4 py-8 sm:px-6">
       <div className="mb-6">
         <h1 className="text-2xl font-bold tracking-tight text-slate-800">
-          Upload County Budget PDF
+          Upload Budget Document
         </h1>
         <p className="mt-1 text-sm text-slate-500">
-          Upload a Nairobi City County budget PDF. It will be parsed, chunked,
-          and indexed in ~30 seconds for AI-powered semantic search.
+          Upload a county budget PDF as either a Proposed (draft) or Enacted
+          (final) budget. Each type is indexed separately for reconciliation.
         </p>
       </div>
 
       <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-        {/* Upload area — shown before upload starts */}
         {!status && (
           <>
             <div className="mb-4 flex items-center gap-2">
@@ -95,9 +106,66 @@ function BudgetUpload() {
                   Budget Document Ingestion
                 </h2>
                 <p className="text-xs text-slate-500">
-                  Fast ingestion — no AI structuring needed
+                  Parse → chunk → embed → semantic search index
                 </p>
               </div>
+            </div>
+
+            {/* Budget Type + Fiscal Year */}
+            <div className="mb-3 grid grid-cols-2 gap-3">
+              <div>
+                <label className="mb-1 block text-xs font-medium text-slate-500">
+                  Budget Type
+                </label>
+                <select
+                  value={budgetType}
+                  onChange={(e) => setBudgetType(e.target.value)}
+                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-200"
+                >
+                  <option value="proposed">
+                    📋 Proposed (Draft)
+                  </option>
+                  <option value="enacted">
+                    ✅ Enacted (Final)
+                  </option>
+                </select>
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-slate-500">
+                  Fiscal Year
+                </label>
+                <select
+                  value={fiscalYear}
+                  onChange={(e) => setFiscalYear(e.target.value)}
+                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-200"
+                >
+                  <option value="2022/23">2022/23</option>
+                  <option value="2023/24">2023/24</option>
+                  <option value="2024/25">2024/25</option>
+                  <option value="2025/26">2025/26</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Budget type hint */}
+            <div className={`mb-4 rounded-lg border p-3 text-xs ${
+              budgetType === "proposed"
+                ? "border-amber-200 bg-amber-50 text-amber-800"
+                : "border-emerald-200 bg-emerald-50 text-emerald-800"
+            }`}>
+              {budgetType === "proposed" ? (
+                <span>
+                  <strong>Proposed budget:</strong> This is the draft estimate
+                  published before public hearings. Citizen concerns will be
+                  matched against this to see what was initially planned.
+                </span>
+              ) : (
+                <span>
+                  <strong>Enacted budget:</strong> This is the final budget passed
+                  by the County Assembly. Citizen concerns will be matched against
+                  this to see what actually got funded.
+                </span>
+              )}
             </div>
 
             <label className="flex cursor-pointer flex-col items-center gap-2 rounded-lg border-2 border-dashed border-slate-200 bg-slate-50 p-8 hover:border-emerald-300 hover:bg-emerald-50/30 transition-colors">
@@ -145,13 +213,11 @@ function BudgetUpload() {
               Job: <code className="bg-slate-100 px-1 rounded">{jobId}</code>
             </div>
 
-            {/* Stages list */}
             <div className="space-y-3">
               {STAGES.map((stage, i) => {
                 const Icon = stage.icon;
                 const isCurrent = i === currentStage;
                 const isDone = i < currentStage;
-                const isPending = i > currentStage;
 
                 return (
                   <div
@@ -182,11 +248,7 @@ function BudgetUpload() {
                       )}
                     </div>
                     <div>
-                      <p
-                        className={`text-sm font-medium ${
-                          isCurrent ? "text-emerald-700" : "text-slate-600"
-                        }`}
-                      >
+                      <p className={`text-sm font-medium ${isCurrent ? "text-emerald-700" : "text-slate-600"}`}>
                         {stage.label}
                       </p>
                       {isCurrent && (
@@ -200,7 +262,6 @@ function BudgetUpload() {
               })}
             </div>
 
-            {/* Progress bar */}
             <div className="h-2 w-full rounded-full bg-slate-200">
               <div
                 className="h-2 rounded-full bg-emerald-500 transition-all duration-500"
@@ -215,10 +276,10 @@ function BudgetUpload() {
           <div className="text-center py-6 space-y-3">
             <CheckCircle2 className="h-12 w-12 text-emerald-500 mx-auto" />
             <h3 className="text-lg font-semibold text-slate-800">
-              Ingestion Complete!
+              {budgetType === "proposed" ? "Proposed Budget" : "Enacted Budget"} Indexed
             </h3>
             <p className="text-sm text-slate-500">
-              {status.stats?.vectors_stored || 0} chunks indexed for semantic search
+              {(status.stats?.vectors_stored || 0)} chunks ready for semantic search
             </p>
             {status.stats && (
               <div className="text-xs text-slate-400 space-y-1">
@@ -241,9 +302,7 @@ function BudgetUpload() {
           <div className="text-center py-6 space-y-3">
             <AlertCircle className="h-12 w-12 text-red-500 mx-auto" />
             <h3 className="text-lg font-semibold text-red-700">Ingestion Failed</h3>
-            <p className="text-sm text-red-500 max-w-md mx-auto">
-              {status.error}
-            </p>
+            <p className="text-sm text-red-500 max-w-md mx-auto">{status.error}</p>
             <button
               onClick={() => { setStatus(null); setFile(null); setJobId(null); }}
               className="mt-2 text-sm text-red-600 hover:underline"

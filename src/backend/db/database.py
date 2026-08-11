@@ -1,21 +1,14 @@
-import os
-from pathlib import Path
-from dotenv import load_dotenv
-
-# Load .env from src/backend/.env regardless of current working directory
-load_dotenv(Path(__file__).resolve().parent.parent / ".env")
-
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 from sqlalchemy.orm import DeclarativeBase
 
-# Supabase PostgreSQL connection
-DATABASE_URL = os.getenv("SUPABASE_DB_URL", "").replace(
-    "postgresql://", "postgresql+asyncpg://", 1
-)
+try:
+    from ..config import settings
+except ImportError:
+    from config import settings
 
 engine = create_async_engine(
-    DATABASE_URL,
-    echo=False,
+    settings.DATABASE_URL,
+    echo=settings.DEBUG,
     pool_size=10,
     max_overflow=20,
 )
@@ -28,7 +21,6 @@ class Base(DeclarativeBase):
 
 
 async def get_db() -> AsyncSession:
-    """Dependency: yields an async DB session."""
     async with async_session() as session:
         try:
             yield session
@@ -39,6 +31,6 @@ async def get_db() -> AsyncSession:
 
 
 async def init_db():
-    """Create all tables on startup."""
+    """Create all tables. Call from lifespan."""
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)

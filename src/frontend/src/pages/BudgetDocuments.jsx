@@ -1,7 +1,15 @@
 import { useState, useEffect } from "react";
-import { FileText, Trash2, CheckCircle2, Clock, AlertCircle, Eye } from "lucide-react";
+import {
+  FileText,
+  Trash2,
+  CheckCircle2,
+  Clock,
+  AlertCircle,
+  FileCheck,
+  FileEdit,
+} from "lucide-react";
 
-const API = "http://localhost:8000";
+const API_BASE = "http://localhost:8000";
 
 function BudgetDocuments() {
   const [documents, setDocuments] = useState([]);
@@ -16,7 +24,7 @@ function BudgetDocuments() {
 
   async function fetchDocs() {
     try {
-      const res = await fetch(`${API}/api/budget/documents`);
+      const res = await fetch(`${API_BASE}/api/budget/documents`);
       if (!res.ok) throw new Error("Failed to fetch");
       const data = await res.json();
       setDocuments(data);
@@ -28,13 +36,15 @@ function BudgetDocuments() {
   }
 
   async function handleDelete(docId) {
-    if (!confirm("Archive this document? Its vectors will be removed from search."))
+    if (!confirm("Permanently delete this document and its vectors?"))
       return;
     try {
-      await fetch(`${API}/api/budget/documents/${docId}`, { method: "DELETE" });
+      await fetch(`${API_BASE}/api/budget/documents/${docId}`, {
+        method: "DELETE",
+      });
       fetchDocs();
     } catch (err) {
-      alert("Failed to archive: " + err.message);
+      alert("Failed to delete: " + err.message);
     }
   }
 
@@ -61,15 +71,26 @@ function BudgetDocuments() {
             Failed
           </span>
         );
-      case "archived":
-        return (
-          <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-500">
-            Archived
-          </span>
-        );
       default:
         return null;
     }
+  };
+
+  const getTypeBadge = (type) => {
+    if (type === "enacted") {
+      return (
+        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-medium text-emerald-700">
+          <FileCheck className="h-3 w-3" />
+          Enacted
+        </span>
+      );
+    }
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-700">
+        <FileEdit className="h-3 w-3" />
+        Proposed
+      </span>
+    );
   };
 
   if (loading) {
@@ -97,7 +118,8 @@ function BudgetDocuments() {
           Budget Documents
         </h1>
         <p className="mt-1 text-sm text-slate-500">
-          All uploaded county budget PDFs. Upload new documents from the Upload page.
+          All uploaded county budget PDFs — proposed drafts and enacted finals.
+          Upload new documents from the Upload page.
         </p>
       </div>
 
@@ -106,7 +128,7 @@ function BudgetDocuments() {
           <FileText className="mb-3 h-12 w-12 opacity-50" />
           <p className="text-sm font-medium">No documents uploaded yet</p>
           <p className="text-xs mt-1">
-            Go to "Upload Budget PDF" to add your first document
+            Go to "Upload Budget PDF" to add proposed or enacted budgets
           </p>
         </div>
       ) : (
@@ -118,13 +140,14 @@ function BudgetDocuments() {
             >
               <div className="flex items-center gap-4 flex-1 min-w-0">
                 <div className="flex-shrink-0">
-                  <FileText className="h-8 w-8 text-blue-500" />
+                  <FileText className={`h-8 w-8 ${doc.budget_type === "enacted" ? "text-emerald-500" : "text-amber-500"}`} />
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
                     <h3 className="font-semibold text-slate-800 truncate">
                       {doc.filename}
                     </h3>
+                    {getTypeBadge(doc.budget_type || "proposed")}
                     {getStatusBadge(doc.status)}
                   </div>
                   <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500">
@@ -150,7 +173,7 @@ function BudgetDocuments() {
                 <button
                   onClick={() => handleDelete(doc.id)}
                   className="rounded-lg p-2 text-slate-400 hover:bg-red-50 hover:text-red-600 transition-colors"
-                  title="Archive document"
+                  title="Delete document"
                 >
                   <Trash2 className="h-4 w-4" />
                 </button>

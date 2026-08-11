@@ -1,77 +1,100 @@
 """
-PDF ingestion — parse budget PDF and chunk text for embedding.
-Replaces the old DeepSeek table-structuring approach.
-Fast: ~5 seconds for a 200-page PDF.
+PDF ingestion — parse and chunk county budget PDFs.
+No LLM calls. Pure text extraction + chunking.
 """
+
 import logging
+import re
+import uuid
 from pathlib import Path
-from typing import List, Dict
 
 import pdfplumber
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 logger = logging.getLogger(__name__)
 
-CHUNK_SIZE = 500
-CHUNK_OVERLAP = 100
+CHUNK_SIZE = 300
+CHUNK_OVERLAP = 30
 
 
-def parse_pdf(file_path: str | Path) -> List[Dict]:
+def parse_pdf(pdf_path: str | None) -> list[dict]:
     """
-    Extract text from every page of the budget PDF.
-    Simple text extraction — no table parsing needed.
-
-    Returns: [{ page_number: int, text: str }, ...]
+    Extract text from a county budget PDF.
+    Returns list of { page_number, text } dicts.
     """
-    path = Path(file_path)
+    if not pdf_path:
+        raise ValueError("No PDF path provided")
+
+    path = Path(pdf_path)
     if not path.exists():
         raise FileNotFoundError(f"PDF not found: {path}")
 
     pages = []
     with pdfplumber.open(str(path)) as pdf:
-        total = len(pdf.pages)
         for i, page in enumerate(pdf.pages, start=1):
             text = page.extract_text() or ""
-            pages.append({"page_number": i, "text": text.strip()})
-            if i % 50 == 0:
-                logger.info("Parsed page %d/%d", i, total)
+            # Also try to extract tables
+            tables = page.extract_tables()
+            if tables:
+                for table in tables:
+                    table_text = _table_to_text(table)
+                    if table_text.strip():
+                        text += "\n" + table_text
 
-    logger.info("Parsed %d pages total", len(pages))
+            if text.strip():
+                pages.append({"page_number": i, "text": text.strip()})
+
+    if not pages:
+        raise ValueError(f"No text extracted from {pdf_path}")
+
+    logger.info("Parsed %d pages from %s", len(pages), path.name)
     return pages
 
 
-def chunk_documents(
-    pages: List[Dict],
-    chunk_size: int = CHUNK_SIZE,
-    chunk_overlap: int = CHUNK_OVERLAP,
-) -> List[Dict]:
-    """
-    Split pages into overlapping chunks for embedding.
+def _table_to_text(table: list[list[str | None]]) -> str:
+    """Convert a pdfplumber table into readable text lines."""
+    lines = []
+    for row in table:
+        if row and any(cell for cell in row):
+            line = " | ".join(str(cell) if cell else "" for cell in row)
+            lines.append(line)
+    return "\n".join(lines)
 
-    Returns: [{ chunk_id, text, page_number, metadata }, ...]
+
+def chunk_documents(pages: list[dict]) -> list[dict]:
+    """
+    Split PDF pages into overlapping text chunks for embedding.
+
+    Returns list of { chunk_id, text, page_number } dicts.
     """
     splitter = RecursiveCharacterTextSplitter(
-        chunk_size=chunk_size,
-        chunk_overlap=chunk_overlap,
+        chunk_size=CHUNK_SIZE,
+        chunk_overlap=CHUNK_OVERLAP,
         separators=["\n\n", "\n", ". ", " ", ""],
-        length_function=len,
     )
 
-    chunks: List[Dict] = []
+    chunks = []
+    seen_texts = set()
+    
     for page in pages:
         page_num = page["page_number"]
-        text = page["text"]
-        if not text.strip():
-            continue
+        page_text = page["text"]
+        page_chunks = splitter.split_text(page_text)
 
-        page_chunks = splitter.split_text(text)
-        for j, chunk_text in enumerate(page_chunks):
+        for chunk_text in page_chunks:
+            cleaned = re.sub(r"\s+", " ", chunk_text).strip()
+            if len(cleaned) < 30:
+                continue
+            norm = cleaned.lower()[:200]  # compare first 200 chars
+            if norm in seen_texts:
+                continue
+            seen_texts.add(norm)
+            
             chunks.append({
-                "chunk_id": f"p{page_num}_c{j}",
-                "text": chunk_text,
+                "chunk_id": f"CH-{uuid.uuid4().hex[:8]}",
+                "text": cleaned,
                 "page_number": page_num,
-                "metadata": {"source_page": page_num, "chunk_index": j},
             })
 
     logger.info("Created %d chunks from %d pages", len(chunks), len(pages))
-    return chunks
+    return chunks 

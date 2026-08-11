@@ -1,29 +1,39 @@
-import os
+from pydantic_settings import BaseSettings
 from pathlib import Path
-from dotenv import load_dotenv
 
-load_dotenv()
+class Settings(BaseSettings):
+    # ── App ──
+    APP_NAME: str = "SautiYetu API"
+    APP_VERSION: str = "2.0.0"
+    DEBUG: bool = False
 
-class Config:
-    # ── DeepSeek (for classification & translation only; NOT for structuring) ──
-    DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
-    DEEPSEEK_BASE_URL = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
+    # ── Database ──
+    DATABASE_URL: str = "sqlite+aiosqlite:///./data/sautiyetu.db"
 
-    # ── Qdrant (local file-based vector DB — fast & free) ──
-    QDRANT_PATH = Path(__file__).resolve().parents[2] / "data" / "qdrant_storage"
+    # ── DeepSeek / LLM ──
+    DEEPSEEK_API_KEY: str = ""
+    DEEPSEEK_BASE_URL: str = "https://api.deepseek.com/v1"
 
-    # ── Supabase (structured database for submissions & matches) ──
-    SUPABASE_URL = os.getenv("SUPABASE_URL")
-    SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY")
+    # ── Embedding ──
+    EMBEDDING_MODEL: str = "intfloat/multilingual-e5-small"
+    EMBEDDING_DEVICE: str = "cpu"
 
-    # ── File size limit ──
-    MAX_PDF_SIZE_MB = int(os.getenv("MAX_PDF_SIZE_MB", "50"))
+    # ── Qdrant ──
+    QDRANT_PATH: str = str(Path(__file__).resolve().parents[2] / "data" / "qdrant_storage")
+    QDRANT_URL: str = ""
 
-    # ── Budget sectors ──
-    BUDGET_SECTORS = [
-        "Health", "Education", "Infrastructure", "Water & Sanitation",
-        "Agriculture", "Energy", "Security", "Governance", "Trade",
-        "Environment", "Social Protection", "Uncategorized"
-    ]
+    # ── CORS ──
+    CORS_ORIGINS: list[str] = ["http://localhost:5173", "http://localhost:5174"]
 
-config = Config()
+    # ── PDF ──
+    MAX_PDF_SIZE_MB: int = 50
+    DEFAULT_BUDGET_PDF: str = ""
+
+    model_config = {
+        "env_file": str(Path(__file__).resolve().parent / ".env"),
+        "env_file_encoding": "utf-8",
+        "extra": "ignore",
+    }
+
+
+settings = Settings()

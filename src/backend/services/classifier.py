@@ -1,0 +1,134 @@
+"""DeepSeek classifier — no keyword fallback. If API fails, it fails."""
+
+import json
+import logging
+import openai
+from ..config import settings
+
+logger = logging.getLogger(__name__)
+
+CLASSIFICATION_PROMPT = """You are a Kenyan county budget classifier.
+Classify this citizen request into a sector and sub-sector.
+
+SECTORS:
+- Health: Maternal Care, Service Delivery, NHIF, Health Infrastructure
+- Education: ECD, Schools & Learning, Bursaries, Tertiary
+- Infrastructure: Roads & Transport, Public Works, Housing, Drainage
+- Water & Sanitation: Water Supply, Sewerage, Sanitation, Garbage
+- Agriculture: Livestock, Crop Farming, Fisheries, Veterinary
+- Energy: Rural Electrification, Street Lighting, Solar
+- Security: Community Safety, Policing, Fire Services
+- Governance: Administration, ICT, Civic Education
+- Trade: Markets, Trade Licenses, Cooperatives
+- Environment: Waste Management, Parks, Tree Planting
+- Social Protection: Youth, Women, PWD, Elderly
+- Uncategorized: if truly unclear (use sparingly)
+
+Return ONLY valid JSON: {"sector":"...","sub_sector":"...","confidence":0.0-1.0}"""
+
+
+class ClassifierService:
+    def __init__(self, embedder=None):
+        self.embedder = embedder
+        self.client = openai.OpenAI(
+            api_key=settings.DEEPSEEK_API_KEY,
+            base_url=settings.DEEPSEEK_BASE_URL,
+        ) if settings.DEEPSEEK_API_KEY else None
+
+    async def classify(self, text: str) -> dict:
+        if not self.client:
+            raise RuntimeError("DEEPSEEK_API_KEY not configured. Classification unavailable.")
+
+        if len(text.strip()) < 5:
+            raise ValueError("Input too short for classification.")
+
+        try:
+            response = self.client.chat.completions.create(
+                model="deepseek-chat",
+                messages=[
+                    {"role": "system", "content": CLASSIFICATION_PROMPT},
+                    {"role": "user", "content": text.strip()},
+                ],
+                temperature=0.0,
+                max_tokens=200,
+            )
+            content = response.choices[0].message.content.strip()
+
+            # Strip markdown code fences if present
+            if content.startswith("```"):
+                content = content.split("\n", 1)[1]
+                if content.endswith("```"):
+                    content = content[:-3]
+                content = content.strip()
+
+            result = json.loads(content)
+            return {
+                "sector": result.get("sector", "Uncategorized"),
+                "sub_sector": result.get("sub_sector", "Needs Review"),
+                "confidence": float(result.get("confidence", 0.0)),
+            }
+
+        except json.JSONDecodeError:
+            logger.error("DeepSeek returned non-JSON: %s", content)
+            raise RuntimeError("Classification failed: invalid response format.")
+        except Exception as e:
+            logger.error("Classification failed: %s", e)
+            raise RuntimeError(f"Classification failed: {str(e)[:200]}")
+        
+    async def classify_batch(self, texts: list[str]) -> list[dict]:
+        if not self.client:
+            raise RuntimeError("DEEPSEEK_API_KEY not configured.")
+
+        numbered = "\n".join(
+            f"{i+1}. {t.strip()[:200]}" for i, t in enumerate(texts) if t.strip()
+        )
+
+        prompt = f"""Classify each into a sector and sub-sector. Return ONLY a JSON array.
+
+{numbered}
+
+SECTORS: Health, Education, Infrastructure, Water & Sanitation, Agriculture, Energy, Security, Governance, Trade, Environment, Social Protection, Uncategorized
+
+Return ONLY: [{{"sector":"...", "sub_sector":"...", "confidence":0.0-1.0}}, ...]"""
+
+        try:
+            response = self.client.chat.completions.create(
+                model="deepseek-chat",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.0,
+                max_tokens=4000,
+            )
+            content = response.choices[0].message.content.strip()
+
+            if content.startswith("```"):
+                content = content.split("\n", 1)[1]
+                if content.endswith("```"):
+                    content = content[:-3]
+                content = content.strip()
+
+            try:
+                results = json.loads(content)
+            except json.JSONDecodeError:
+                content = content.replace("\n", " ")
+                try:
+                    results = json.loads(content)
+                except json.JSONDecodeError:
+                    import re
+                    results = []
+                    for m in re.finditer(r'\{[^{}]*\}', content):
+                        try:
+                            results.append(json.loads(m.group()))
+                        except json.JSONDecodeError:
+                            pass
+
+            if not isinstance(results, list):
+                raise ValueError("Not a list")
+
+            while len(results) < len(texts):
+                results.append({"sector": "Uncategorized", "sub_sector": "Needs Review", "confidence": 0.0})
+
+            return results[:len(texts)]
+
+        except Exception as e:
+            logger.error("Batch classification failed: %s", e)
+            raise RuntimeError(f"Batch classification failed: {str(e)[:200]}")

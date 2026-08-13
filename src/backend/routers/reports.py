@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, desc
+from sqlalchemy.orm import selectinload
 
 from ..db.database import get_db
 from ..db.models import Submission, BudgetMatch, MatchStatus
@@ -16,7 +17,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/reports", tags=["reports"])
 
 
-@router.get("", response_model=ReportResponse)
+@router.get("")
 async def generate_report(
     ward: str | None = Query(None),
     sector: str | None = Query(None),
@@ -26,10 +27,7 @@ async def generate_report(
     format: str = Query("json"),
     db: AsyncSession = Depends(get_db),
 ):
-    """Generate an aggregated CSO report with optional filters."""
-    # Base query
-    query = select(Submission).join(BudgetMatch, isouter=True)
-
+    query = select(Submission).options(selectinload(Submission.match)).join(BudgetMatch, isouter=True)
     if ward:
         query = query.where(Submission.ward.ilike(f"%{ward}%"))
     if sector:
@@ -44,98 +42,114 @@ async def generate_report(
     result = await db.execute(query)
     submissions = result.scalars().all()
 
-    # Build summary
-    matched = sum(1 for s in submissions if s.match and s.match.status == MatchStatus.matched)
-    partial = sum(1 for s in submissions if s.match and s.match.status == MatchStatus.partial)
-    ignored = sum(1 for s in submissions if s.match and s.match.status == MatchStatus.ignored)
+    def st(s):
+        return s.match.status.value if s.match else "ignored"
+
+    matched = sum(1 for s in submissions if st(s) == "matched")
+    partial = sum(1 for s in submissions if st(s) == "partial")
+    ignored = sum(1 for s in submissions if st(s) == "ignored")
     total = len(submissions)
 
-    summary = ReportSummary(
-        total=total,
-        matched=matched,
-        partial=partial,
-        ignored=ignored,
-        match_rate=round((matched + partial) / total * 100, 1) if total > 0 else 0.0,
-    )
-
-    # By sector
-    sector_counts: dict[str, int] = {}
+    # By sector (with status breakdown)
+    by_sector_map = {}
     for s in submissions:
-        if s.sector:
-            sector_counts[s.sector] = sector_counts.get(s.sector, 0) + 1
+        k = s.sector or "Unknown"
+        d = by_sector_map.setdefault(k, {"count": 0, "matched": 0, "partial": 0, "ignored": 0})
+        d["count"] += 1
+        d[st(s)] += 1
     by_sector = sorted(
-        [{"sector": k, "count": v} for k, v in sector_counts.items()],
+        [{"sector": k, **v} for k, v in by_sector_map.items()],
         key=lambda x: x["count"], reverse=True,
     )
 
-    # By ward
-    ward_counts: dict[str, int] = {}
+    # By ward (with status breakdown)
+    by_ward_map = {}
     for s in submissions:
-        ward_counts[s.ward] = ward_counts.get(s.ward, 0) + 1
+        k = s.ward or "Unknown"
+        d = by_ward_map.setdefault(k, {"count": 0, "matched": 0, "partial": 0, "ignored": 0})
+        d["count"] += 1
+        d[st(s)] += 1
     by_ward = sorted(
-        [{"ward": k, "count": v} for k, v in ward_counts.items()],
+        [{"ward": k, **v} for k, v in by_ward_map.items()],
         key=lambda x: x["count"], reverse=True,
     )
 
     # By channel
-    channel_counts: dict[str, int] = {}
+    channel_map = {}
     for s in submissions:
-        ch = s.channel.value if s.channel else "unknown"
-        channel_counts[ch] = channel_counts.get(ch, 0) + 1
+        k = s.channel.value if s.channel else "unknown"
+        channel_map[k] = channel_map.get(k, 0) + 1
     by_channel = sorted(
-        [{"channel": k, "count": v} for k, v in channel_counts.items()],
+        [{"channel": k, "count": v} for k, v in channel_map.items()],
         key=lambda x: x["count"], reverse=True,
     )
 
-    # Funding gap
-    funding_gap = {
-        "matched_count": matched,
-        "partial_count": partial,
-        "ignored_count": ignored,
-        "pct_addressed": round((matched + partial) / total * 100, 1) if total > 0 else 0.0,
-        "pct_ignored": round(ignored / total * 100, 1) if total > 0 else 0.0,
-    }
+    # Top repeated requests
+    request_map = {}
+    for s in submissions:
+        text = (s.citizen_input or "").strip()[:120]
+        if not text:
+            continue
+        d = request_map.setdefault(text, {"count": 0, "status": "ignored"})
+        d["count"] += 1
+        d["status"] = st(s)
+    top_requests = sorted(
+        [{"text": k, "count": v["count"], "status": v["status"]} for k, v in request_map.items()],
+        key=lambda x: x["count"], reverse=True,
+    )[:10]
 
-    # Submissions data
+    # Available filter values
+    all_wards = (await db.execute(select(Submission.ward).distinct())).scalars().all()
+    all_sectors = (
+        await db.execute(
+            select(Submission.sector).where(Submission.sector.isnot(None)).distinct()
+        )
+    ).scalars().all()
+
     submissions_data = [
         {
             "id": s.id,
             "ward": s.ward,
             "channel": s.channel.value if s.channel else "",
-            "citizen_input": s.citizen_input[:200],
+            "citizenInput": s.citizen_input[:200],
             "sector": s.sector,
-            "sub_sector": s.sub_sector,
-            "status": s.match.status.value if s.match else "ignored",
-            "budget_result": s.match.budget_result[:200] if s.match and s.match.budget_result else "",
-            "submitted_at": s.submitted_at.isoformat() if s.submitted_at else "",
+            "subSector": s.sub_sector,
+            "status": st(s),
+            "budgetResult": s.match.budget_result[:200] if s.match and s.match.budget_result else "",
+            "submittedAt": s.submitted_at.isoformat() if s.submitted_at else "",
         }
         for s in submissions
     ]
 
-    # CSV export
+    payload = {
+        "filters": {
+            "ward": ward, "sector": sector, "status": status,
+            "date_from": date_from, "date_to": date_to,
+            "available": {"wards": all_wards, "sectors": all_sectors},
+        },
+        "summary": {
+            "total": total, "matched": matched, "partial": partial, "ignored": ignored,
+            "matchRate": round((matched + partial) / total * 100, 1) if total else 0.0,
+        },
+        "bySector": by_sector,
+        "byWard": by_ward,
+        "byChannel": by_channel,
+        "topRequests": top_requests,
+        "fundingGap": {
+            "pctAddressed": round((matched + partial) / total * 100, 1) if total else 0.0,
+            "pctUnaddressed": round(ignored / total * 100, 1) if total else 0.0,
+        },
+        "submissions": submissions_data,
+    }
+
     if format == "csv":
         import csv
         from io import StringIO
-
         output = StringIO()
         if submissions_data:
             writer = csv.DictWriter(output, fieldnames=list(submissions_data[0].keys()))
             writer.writeheader()
             writer.writerows(submissions_data)
+        return {"csv": output.getvalue(), "filename": "sauti_yetu_report.csv"}
 
-        from fastapi.responses import Response
-        return Response(
-            content=output.getvalue(),
-            media_type="text/csv",
-            headers={"Content-Disposition": f"attachment; filename=sauti_yetu_report.csv"},
-        )
-
-    return ReportResponse(
-        filters={"ward": ward, "sector": sector, "status": status, "date_from": date_from, "date_to": date_to},
-        summary=summary,
-        by_sector=by_sector,
-        by_ward=by_ward,
-        by_channel=by_channel,
-        funding_gap=funding_gap,
-        submissions=submissions_data,
-    )
+    return payload

@@ -10,7 +10,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, UploadFile, File, HTTPException, Depends, Form
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, desc
+from sqlalchemy import select, desc, case
 
 from ..db.database import get_db
 from ..db.models import Submission, BudgetMatch, MatchStatus, Channel, ParticipationSession, BudgetLineItem, BudgetDocument, DocumentStatus
@@ -113,38 +113,27 @@ async def match_selected_points(
     results = []
     summary = {"total": 0, "matched": 0, "partial": 0, "ignored": 0}
 
-        # Collect all texts first
-    point_texts = []
-    point_pids = []
+    # Find the budget collection ONCE (proposed vs enacted handled by caller's budget_type)
+    budget_doc = await db.execute(
+        select(BudgetDocument)
+        .where(BudgetDocument.status == DocumentStatus.ready)
+        .order_by(
+            case((BudgetDocument.budget_type == "enacted", 0), else_=1),
+            desc(BudgetDocument.uploaded_at),
+        )
+        .limit(1)
+    )
+    doc = budget_doc.scalar_one_or_none()
+    collection = f"budget_{doc.budget_type}" if doc and doc.budget_type else "budget_proposed"
+    
     for pid in payload.point_ids:
         point = points_map.get(pid, {})
         text = point.get("text", "").strip()
         if len(text) < 10:
-            continue  # skip garbage
-        point_texts.append(text)
-        point_pids.append(pid)
+            continue  # skip empty/garbage — human already filtered, this is a safety net
 
-    # ★★★ ONE API call instead of N ★★★
-    if point_texts:
-        classifications = await classifier.classify_batch(point_texts)
-    else:
-        classifications = []
-
-    # Find budget document once (not per point)
-    budget_doc = await db.execute(
-        select(BudgetDocument)
-        .where(BudgetDocument.status == DocumentStatus.ready)
-        .order_by(desc(BudgetDocument.budget_type))
-        .limit(1)
-    )
-    doc = budget_doc.scalar_one_or_none()
-    collection = f"budget_{doc.budget_type}" if doc else "budget_proposed"
-
-    for idx, pid in enumerate(point_pids):
-        text = point_texts[idx]
-        classification = classifications[idx] if idx < len(classifications) else {
-            "sector": "Uncategorized", "sub_sector": "Needs Review", "confidence": 0.0
-        }
+        # Classify this ONE selected point
+        classification = await classifier.classify(text)
 
         match = await matcher.match(
             citizen_text=text,
@@ -154,7 +143,7 @@ async def match_selected_points(
             collection=collection,
         )
 
-        # Persist as Submission + BudgetMatch
+        # Persist as Submission + BudgetMatch — only selected points reach the DB
         submission = Submission(
             ward=payload.ward,
             channel=Channel.baraza,
@@ -185,7 +174,7 @@ async def match_selected_points(
         results.append({
             "point_id": pid,
             "submission_id": submission.id,
-            "page_number": points_map.get(pid, {}).get("page_number"),
+            "page_number": point.get("page_number"),
             "citizen_input": text,
             "sector": classification["sector"],
             "sub_sector": classification["sub_sector"],

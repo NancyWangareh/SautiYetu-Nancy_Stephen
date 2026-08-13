@@ -15,6 +15,7 @@ import {
   Megaphone,
 } from "lucide-react";
 import { useBudgetMatches } from "../data/matches";
+import { API_BASE } from "../config"; 
 
 /* ─── Status badge config ─── */
 const STATUS_CONFIG = {
@@ -34,59 +35,49 @@ const STATUS_CONFIG = {
 
 /** Parse the participation JSON field from a submission record */
 function getParticipation(record) {
-  try {
-    if (record.participation) {
-      return typeof record.participation === "string"
-        ? JSON.parse(record.participation)
-        : record.participation;
-    }
-  } catch {
-    // ignore parse errors
-  }
-  return null;
+  // backend returns `participation_detail`, not `participation`
+  const part = record.participation_detail || record.participation;
+  if (!part) return null;
+  return typeof part === "string" ? JSON.parse(part) : part;
 }
 
 /* ─── MatchCard component ─── */
 function MatchCard({ record }) {
-  const statusCfg = STATUS_CONFIG[record.status] || STATUS_CONFIG.ignored;
+  const m = record.match || {};
+  const status = m.status || "ignored";
+  const statusCfg = STATUS_CONFIG[status] || STATUS_CONFIG.ignored;
   const [showSimplified, setShowSimplified] = useState(false);
   const part = getParticipation(record);
 
-  // Parse key points from CSV (semicolon-separated) or from API (array)
   const keyPoints =
-    typeof record.keyPoints === "string" && record.keyPoints
-      ? record.keyPoints.split(";").map((p) => p.trim()).filter(Boolean)
-      : Array.isArray(record.keyPoints)
-        ? record.keyPoints
+    typeof m.key_points === "string" && m.key_points
+      ? m.key_points.split(";").map((p) => p.trim()).filter(Boolean)
+      : Array.isArray(m.key_points)
+        ? m.key_points
         : [];
 
   return (
     <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-      {/* Header bar */}
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 bg-slate-50 px-5 py-3">
         <div className="flex items-center gap-3">
           <span className="font-mono text-xs text-slate-500">{record.id}</span>
           <span className="inline-flex items-center rounded-md border border-slate-200 bg-white px-2 py-0.5 text-xs text-slate-600">
             {record.ward}
           </span>
-          <span className="text-xs text-slate-400">{record.submittedAt}</span>
+          <span className="text-xs text-slate-400">{record.submitted_at}</span>
         </div>
-        <span
-          className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold ${statusCfg.className}`}
-        >
+        <span className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold ${statusCfg.className}`}>
           {statusCfg.label}
         </span>
-        {part?.hasMatch && (
+        {part?.has_match && (
           <span className="inline-flex items-center gap-1 rounded-full border border-amber-300 bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700">
             <Megaphone className="h-3 w-3" />
-            🗣️ +{((part.boostFactor || 0) * 100).toFixed(0)}% priority boost
+            🗣️ +{((part.boost_factor || 0) * 100).toFixed(0)}% priority boost
           </span>
         )}
       </div>
 
-      {/* Three-column grid: citizen input | arrow | budget result */}
       <div className="grid gap-0 md:grid-cols-[1fr_auto_1fr]">
-        {/* Left: Bottom-up */}
         <div className="p-5">
           <div className="mb-2 flex flex-wrap items-center gap-2 text-xs font-medium uppercase tracking-wide text-slate-400">
             <MessageSquare className="h-3.5 w-3.5" />
@@ -95,37 +86,30 @@ function MatchCard({ record }) {
               via {record.channel}
             </span>
           </div>
-          <p className="text-sm leading-relaxed text-slate-700">
-            &ldquo;{record.citizenInput}&rdquo;
-          </p>
+          <p className="text-sm leading-relaxed text-slate-700">&ldquo;{record.citizen_input}&rdquo;</p>
           <div className="mt-3 flex flex-wrap items-center gap-1.5">
             <Sparkles className="h-3.5 w-3.5 text-emerald-600" />
             <span className="inline-flex items-center rounded-md border border-emerald-200 bg-emerald-50 px-2.5 py-0.5 text-xs text-emerald-700">
               Sector: {record.sector}
             </span>
             <span className="inline-flex items-center rounded-md border border-emerald-200 bg-emerald-50 px-2.5 py-0.5 text-xs text-emerald-700">
-              Sub-sector: {record.subSector}
+              Sub-sector: {record.sub_sector}
             </span>
           </div>
         </div>
 
-        {/* Center: Arrow */}
         <div className="hidden items-center justify-center border-x border-slate-100 px-4 text-slate-300 md:flex">
           <ArrowRight className="h-5 w-5" />
         </div>
 
-        {/* Right: Top-down */}
         <div className="border-t border-slate-100 p-5 md:border-t-0">
           <div className="mb-2 flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-slate-400">
             <Landmark className="h-3.5 w-3.5" />
             Budget Result · Top-Down
           </div>
-          <p className="text-sm leading-relaxed text-slate-700">
-            {record.budgetResult}
-          </p>
+          <p className="text-sm leading-relaxed text-slate-700">{m.budget_result || "Pending match..."}</p>
 
-          {/* ── Plain Language Explanation ── */}
-          {record.simplified && (
+          {m.simplified && (
             <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50/50">
               <button
                 onClick={() => setShowSimplified(!showSimplified)}
@@ -135,26 +119,17 @@ function MatchCard({ record }) {
                   <BookOpen className="h-3.5 w-3.5" />
                   Plain Language Explanation
                 </span>
-                {showSimplified ? (
-                  <ChevronUp className="h-3.5 w-3.5" />
-                ) : (
-                  <ChevronDown className="h-3.5 w-3.5" />
-                )}
+                {showSimplified ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
               </button>
 
               {showSimplified && (
                 <div className="space-y-2 border-t border-emerald-200 px-4 py-3">
-                  <p className="text-sm leading-relaxed text-slate-700">
-                    {record.simplified}
-                  </p>
+                  <p className="text-sm leading-relaxed text-slate-700">{m.simplified}</p>
 
                   {keyPoints.length > 0 && (
                     <ul className="space-y-1.5">
                       {keyPoints.map((point, i) => (
-                        <li
-                          key={i}
-                          className="flex items-start gap-2 text-sm text-slate-600"
-                        >
+                        <li key={i} className="flex items-start gap-2 text-sm text-slate-600">
                           <Lightbulb className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-amber-500" />
                           <span>{point}</span>
                         </li>
@@ -162,9 +137,9 @@ function MatchCard({ record }) {
                     </ul>
                   )}
 
-                  {record.category && (
+                  {m.category && (
                     <span className="inline-flex items-center rounded-full border border-emerald-300 bg-white px-2.5 py-0.5 text-xs text-emerald-700">
-                      Category: {record.category}
+                      Category: {m.category}
                     </span>
                   )}
                 </div>
@@ -190,51 +165,51 @@ function Matches() {
   const [simplifiedResults, setSimplifiedResults] = useState({});
   const [simplifyingIdx, setSimplifyingIdx] = useState(null);
 
-  const handleSimplifyResult = async (idx, text) => {
-    setSimplifyingIdx(idx);
-    try {
-      const res = await fetch("http://localhost:8000/api/budget/simplify", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setSimplifiedResults((prev) => ({ ...prev, [idx]: data }));
-      }
-    } catch {
-      // Silently fail — simplification is optional
-    } finally {
-      setSimplifyingIdx(null);
-    }
-  };
-
-  const handleSearch = async () => {
-    const query = searchQuery.trim();
-    if (!query) return;
-
-    setIsSearching(true);
-    setSearchError("");
-    setHasSearched(true);
-
-    try {
-      const res = await fetch("http://localhost:8000/api/budget/search", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query, top_k: 5 }),
-      });
-
-      if (!res.ok) throw new Error(`Server error: ${res.status}`);
-
+const handleSimplifyResult = async (idx, text) => {
+  setSimplifyingIdx(idx);
+  try {
+    const res = await fetch(`${API_BASE}/api/budget/simplify`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text }),
+    });
+    if (res.ok) {
       const data = await res.json();
-      setSearchResults(data?.results ?? []);
-    } catch (err) {
-      setSearchError(err.message || "Search failed");
-      setSearchResults([]);
-    } finally {
-      setIsSearching(false);
+      setSimplifiedResults((prev) => ({ ...prev, [idx]: data }));
     }
-  };
+  } catch {
+    // Silently fail — simplification is optional
+  } finally {
+    setSimplifyingIdx(null);
+  }
+};
+  
+  const handleSearch = async () => {
+  const query = searchQuery.trim();
+  if (!query) return;
+
+  setIsSearching(true);
+  setSearchError("");
+  setHasSearched(true);
+
+  try {
+    const res = await fetch(`${API_BASE}/api/budget/search`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query, top_k: 5 }),
+    });
+
+    if (!res.ok) throw new Error(`Server error: ${res.status}`);
+
+    const data = await res.json();
+    setSearchResults(data?.results ?? []);
+  } catch (err) {
+    setSearchError(err.message || "Search failed");
+    setSearchResults([]);
+  } finally {
+    setIsSearching(false);
+  }
+};
 
   const handleKeyDown = (e) => {
     if (e.key === "Enter") handleSearch();
@@ -372,9 +347,9 @@ function Matches() {
                         <p className="text-sm leading-relaxed text-slate-700">
                           {simplified.simplified}
                         </p>
-                        {simplified.keyPoints?.length > 0 && (
+                        {(simplified.key_points || simplified.keyPoints || []).length > 0 && (
                           <ul className="mt-2 space-y-1">
-                            {simplified.keyPoints.map((point, i) => (
+                            {(simplified.key_points || simplified.keyPoints || []).map((point, i) => (
                               <li
                                 key={i}
                                 className="flex items-start gap-1.5 text-xs text-slate-600"
@@ -402,7 +377,7 @@ function Matches() {
           <span className="mb-3 text-4xl">🔗</span>
           <p className="text-sm font-medium">No budget matches yet</p>
           <p className="mt-1 text-xs">
-            Submit citizen requests from the Input page to see budget matching.
+            Upload and match participation points to see budget matching results.
           </p>
         </div>
       ) : (

@@ -60,9 +60,10 @@ app.include_router(wards.router)
 @app.get("/api/health")
 async def health():
     store = get_vector_store()
+    ready = store.collection_exists("budget_proposed") or store.collection_exists("budget_enacted")
     return {
         "status": "ok",
         "version": settings.APP_VERSION,
-        "qdrant_ready": store.collection_exists() if store else False,
+        "qdrant_ready": ready,
         "deepseek_configured": bool(settings.DEEPSEEK_API_KEY),
     }

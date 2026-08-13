@@ -14,6 +14,7 @@ from pathlib import Path
 from fastapi import APIRouter, UploadFile, File, HTTPException, Depends, Query, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc
+from qdrant_client.models import Filter, FieldCondition, MatchValue
 
 from ..config import settings
 from ..db.database import get_db
@@ -229,13 +230,33 @@ async def search_budget(
     embedder: EmbeddingService = Depends(get_embedder),
     store: VectorStore = Depends(get_vector_store),
 ):
-    """Semantic search over budget document chunks."""
-    # Try enacted first, then proposed
-    collection = "budget_enacted" if store.collection_exists("budget_enacted") else \
-                 "budget_proposed" if store.collection_exists("budget_proposed") else None
+    """Semantic search over budget document chunks (enacted first, then proposed)."""
+    collection = None
+    if store.collection_exists("budget_enacted"):
+        collection = "budget_enacted"
+    elif store.collection_exists("budget_proposed"):
+        collection = "budget_proposed"
+
     if not collection:
         raise HTTPException(400, "Budget index not available. Upload a budget PDF first.")
 
+    query_vector = embedder.embed_query(payload.query)
+    hits = store.search(query_vector, top_k=payload.top_k, collection=collection)
+
+    return {
+        "results": [
+            {
+                "text": h["text"],
+                "score": h["score"],
+                "page_number": h.get("page_number", 0),
+                "chunk_id": h.get("chunk_id", ""),
+                "document_id": h.get("document_id", ""),
+            }
+            for h in hits
+        ],
+        "collection": collection,
+        "query": payload.query,
+    }
 # ── Simplify ──────────────────────────────────────────────────────────────
 
 @router.post("/simplify", response_model=SimplifyResponse)
@@ -279,6 +300,25 @@ async def list_documents(db: AsyncSession = Depends(get_db)):
         for d in docs
     ]
 
+@router.delete("/documents/{document_id}")
+async def delete_document(document_id: str, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(
+        select(BudgetDocument).where(BudgetDocument.id == document_id)
+    )
+    doc = result.scalar_one_or_none()
+    if not doc:
+        raise HTTPException(404, "Document not found")
+
+    # Delete vectors from both collections
+    store = get_vector_store()
+    selector = Filter(must=[FieldCondition(key="document_id", match=MatchValue(value=document_id))])
+    for coll in ("budget_proposed", "budget_enacted"):
+        if store.collection_exists(coll):
+            store.client.delete(collection_name=coll, points_selector=selector)
+
+    await db.delete(doc)
+    await db.commit()
+    return {"message": f"Document {document_id} deleted", "id": document_id}
 
 @router.get("/documents/{document_id}", response_model=DocumentResponse)
 async def get_document(document_id: str, db: AsyncSession = Depends(get_db)):
@@ -290,6 +330,7 @@ async def get_document(document_id: str, db: AsyncSession = Depends(get_db)):
         raise HTTPException(404, "Document not found")
     return DocumentResponse(
         id=doc.id, filename=doc.filename, fiscal_year=doc.fiscal_year,
+        budget_type=doc.budget_type,          # ← add this
         status=doc.status.value, size_mb=doc.size_mb,
         total_pages=doc.total_pages, total_chunks=doc.total_chunks,
         uploaded_at=doc.uploaded_at.isoformat(),

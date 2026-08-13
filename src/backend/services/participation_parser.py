@@ -1,10 +1,12 @@
 """
-Participation PDF Parser — extracts grassroots citizen input points from public
-participation documents (town hall minutes, baraza reports).
+Participation PDF Parser — extracts citizen input points from public
+participation documents using pdfplumber text extraction only.
+
+No OCR — scanned pages simply yield no text, and the human
+selection step filters out garbage.
 """
 
 import re
-import uuid
 from pathlib import Path
 
 import pdfplumber
@@ -17,21 +19,9 @@ POINT_SPLITTERS = [
     re.compile(r"(?<=\n)\s*[•\-\*\→\✓\✔]\s+(?=\S)"),
 ]
 
-SECTION_HEADERS = re.compile(
-    r"^\s*(?:SECTION|AGENDA|ISSUE|CONCERN|TOPIC|WARD|MINUTE|ITEM"
-    r"|HEALTH|EDUCATION|INFRASTRUCTURE|WATER|SANITATION|AGRICULTURE"
-    r"|ENERGY|SECURITY|ROADS|DRAINAGE|YOUTH|WOMEN|DISABILITY|ENVIRONMENT"
-    r"|HOUSING|MARKET|TRANSPORT|GARBAGE|WASTE|LIGHTING|ELECTRICITY)\s*[:\-]?\s*$",
-    re.IGNORECASE,
-)
-
-COUNTY_HEADER_PATTERN = re.compile(
-    r"(?:^|\n)\s*([A-Z][A-Z\s\-']+(?:COUNTY|CITY COUNTY|MUNICIPALITY))\s*(?:\n|$|:|\d)",
-    re.IGNORECASE,
-)
-
 
 def parse_participation_pdf(file_path: str | Path) -> list[dict]:
+    """Extract text from each page. Skips pages with no extractable text."""
     path = Path(file_path)
     if not path.exists():
         raise FileNotFoundError(f"PDF not found: {path}")
@@ -40,60 +30,14 @@ def parse_participation_pdf(file_path: str | Path) -> list[dict]:
     with pdfplumber.open(str(path)) as pdf:
         for i, page in enumerate(pdf.pages, start=1):
             text = page.extract_text() or ""
-
-            if len(text.strip()) < 50 or _is_garbled(text):
-                ocr_text = _ocr_page(page, i)
-                if ocr_text.strip():
-                    text = ocr_text
-                # If OCR also failed, still include the page with whatever we got
-                # Don't skip — return empty text so extract_points can still try
-
-            pages.append({"page_number": i, "text": text.strip() if text.strip() else ""})
+            if text.strip():
+                pages.append({"page_number": i, "text": text.strip()})
 
     return pages
 
 
-def _is_garbled(text: str) -> bool:
-    """Detect if extracted text is likely scanned-garbage rather than real text."""
-    stripped = text.strip()
-    if len(stripped) < 30:
-        return True
-    # Count ratio of alphabetic characters
-    alpha = sum(1 for c in stripped if c.isalpha() or c.isspace() or c.isdigit())
-    # Garbled text has lots of symbols like "I I ri;:i I l 'i-i-i"
-    if alpha < len(stripped) * 0.5:   # was 0.3, now stricter
-        return True
-    # If text contains actual English words, it's probably real
-    common_words = ["the", "and", "for", "county", "budget", "public", "road", "school", "health"]
-    word_count = sum(1 for w in common_words if w in stripped.lower())
-    if word_count >= 2:
-        return False  # definitely real text
-    return False  # default: trust pdfplumber
-
-
-def _ocr_page(page, page_num: int) -> str:
-    """OCR a page using Tesseract."""
-    try:
-        import pytesseract
-        from PIL import Image
-
-        pytesseract.pytesseract.tesseract_cmd = (
-            r"C:\Users\bagic\AppData\Local\Programs\Tesseract-OCR\tesseract.exe"
-        )
-
-        img = page.to_image(resolution=300)
-        pil_image = img.original.convert("L")
-        text = pytesseract.image_to_string(pil_image, lang="eng")
-        return text
-    except ImportError:
-        return ""
-    except Exception as e:
-        import logging
-        logging.getLogger(__name__).warning("OCR skipped page %d: %s", page_num, e)
-        return ""
-    
 def extract_points(pages: list[dict]) -> list[dict]:
-    """Break PDF pages into individual citizen input 'points'."""
+    """Break PDF pages into individual citizen input points."""
     points: list[dict] = []
     seen_texts: set[str] = set()
     counter = 0
@@ -170,19 +114,9 @@ def _fallback_split(text: str) -> list[str]:
 
 
 def process_participation_pdf(file_path: str, county: str | None = None) -> dict:
-    """
-    Full pipeline: parse PDF → extract points → optionally filter by county.
-    Returns a dict with stats and extracted points.
-    """
+    """Full pipeline: parse PDF → extract points."""
     pages = parse_participation_pdf(file_path)
     filename = Path(file_path).name
-
-    # Filter by county if specified
-    if county:
-        filtered = _filter_by_county(pages, county)
-        if filtered:
-            pages = filtered
-
     points = extract_points(pages)
 
     return {
@@ -192,20 +126,3 @@ def process_participation_pdf(file_path: str, county: str | None = None) -> dict
         "county": county or "all",
         "points": points,
     }
-
-
-def _filter_by_county(pages: list[dict], target_county: str) -> list[dict]:
-    """Filter pages to only those belonging to a specific county."""
-    target_lower = target_county.lower().strip()
-    filtered = []
-    current_county = None
-
-    for page in pages:
-        text = page["text"]
-        match = COUNTY_HEADER_PATTERN.search(text[:500])
-        if match:
-            current_county = match.group(1).strip().lower()
-        if current_county is None or target_lower in current_county:
-            filtered.append(page)
-
-    return filtered

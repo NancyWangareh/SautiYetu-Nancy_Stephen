@@ -19,28 +19,13 @@ const STATUS_CONFIG = {
   },
 };
 
-function getParticipation(record) {
-  try {
-    if (record.participation) {
-      return typeof record.participation === "string"
-        ? JSON.parse(record.participation)
-        : record.participation;
-    }
-  } catch {
-    // ignore
-  }
-  return null;
-}
-
 function Submissions() {
   const submissions = useSubmissions();
 
   return (
     <div className="mx-auto max-w-6xl space-y-6 px-4 py-8 sm:px-6">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight text-slate-800">
-          Submissions
-        </h1>
+        <h1 className="text-2xl font-bold tracking-tight text-slate-800">Submissions</h1>
         <p className="mt-1 text-sm text-slate-500">
           Every citizen concern extracted from public participation documents,
           classified by sector, and matched against the enacted budget.
@@ -71,18 +56,17 @@ function Submissions() {
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {submissions.map((s) => {
-                  const statusCfg = STATUS_CONFIG[s.status] || STATUS_CONFIG.ignored;
+                  const status = s.match?.status || "ignored";
+                  const statusCfg = STATUS_CONFIG[status] || STATUS_CONFIG.ignored;
                   const StatusIcon = statusCfg.icon;
                   return (
                     <tr key={s.id} className="transition-colors hover:bg-slate-50">
-                      <td className="px-4 py-3 font-mono text-xs text-slate-500">
-                        {s.id}
-                      </td>
+                      <td className="px-4 py-3 font-mono text-xs text-slate-500">{s.id}</td>
                       <td className="px-4 py-3 text-slate-700">{s.ward}</td>
                       <td className="max-w-md px-4 py-3 text-slate-500">
                         <p className="line-clamp-2">
-                          {s.citizenInput?.slice(0, 250)}
-                          {(s.citizenInput?.length || 0) > 250 ? "…" : ""}
+                          {s.citizen_input?.slice(0, 250)}
+                          {(s.citizen_input?.length || 0) > 250 ? "…" : ""}
                         </p>
                       </td>
                       <td className="px-4 py-3">
@@ -90,14 +74,14 @@ function Submissions() {
                           <span className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-0.5 text-xs font-medium text-emerald-700 w-fit">
                             {s.sector}
                           </span>
-                          {s.subSector && (
-                            <span className="text-[10px] text-slate-400">{s.subSector}</span>
+                          {s.sub_sector && (
+                            <span className="text-[10px] text-slate-400">{s.sub_sector}</span>
                           )}
                         </div>
                       </td>
                       <td className="max-w-xs px-4 py-3 text-xs text-slate-500">
                         <p className="line-clamp-2">
-                          {s.budgetResult?.replace(/^\[.*?\]\s*/, "") || "Pending match..."}
+                          {s.match?.budget_result?.replace(/^\[.*?\]\s*/, "") || "Pending match..."}
                         </p>
                       </td>
                       <td className="px-4 py-3">

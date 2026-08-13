@@ -17,7 +17,7 @@ import {
   Printer,
 } from "lucide-react";
 
-const API_BASE = "http://localhost:8000";
+import { API_BASE } from "../config"; 
 
 const STATUS_COLORS = {
   matched: "bg-emerald-100 text-emerald-800 border-emerald-300",
@@ -55,7 +55,7 @@ function Reports() {
     if (dateTo) params.set("dateTo", dateTo);
 
     try {
-      const res = await fetch(`${API_BASE}/api/report?${params.toString()}`);
+      const res = await fetch(`${API_BASE}/api/reports?${params.toString()}`);
       if (!res.ok) throw new Error(`Server error: ${res.status}`);
       const data = await res.json();
       setReport(data);
@@ -84,7 +84,7 @@ function Reports() {
     params.set("format", "csv");
 
     try {
-      const res = await fetch(`${API_BASE}/api/report?${params.toString()}`);
+      const res = await fetch(`${API_BASE}/api/reports?${params.toString()}`);
       const data = await res.json();
       const blob = new Blob([data.csv], { type: "text/csv" });
       const url = URL.createObjectURL(blob);

@@ -12,7 +12,7 @@ import {
   FileCheck,
 } from "lucide-react";
 
-const API_BASE = "http://localhost:8000";
+import { API_BASE } from "../config"; 
 
 const STAGES = [
   { key: "parsing", label: "Parsing PDF pages...", icon: FileText },

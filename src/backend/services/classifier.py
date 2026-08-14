@@ -4,8 +4,25 @@ import json
 import logging
 import openai
 from ..config import settings
+import re
 
 logger = logging.getLogger(__name__)
+
+SECTORS = [
+    "Health", "Education", "Infrastructure", "Water & Sanitation",
+    "Agriculture", "Energy", "Security", "Governance", "Trade",
+    "Environment", "Social Protection", "Uncategorized",
+]
+
+BUDGET_LINE_PROMPT = """You classify Kenyan county budget line items (projects).
+
+Use ONLY this sector taxonomy: """ + ", ".join(SECTORS) + """.
+
+For each line, pick the sector and a sub-sector (e.g. Roads & Transport, Sewerage,
+Water Supply, Public Works, Markets, Street Lighting, Waste Management, etc.).
+
+Return ONLY a JSON array with one object per line, in the same order:
+[{"sector":"...","sub_sector":"...","confidence":0.0-1.0}, ...]"""
 
 CLASSIFICATION_PROMPT = """You are a Kenyan county budget classifier.
 Classify this citizen request into a sector and sub-sector.
@@ -132,3 +149,47 @@ Return ONLY: [{{"sector":"...", "sub_sector":"...", "confidence":0.0-1.0}}, ...]
         except Exception as e:
             logger.error("Batch classification failed: %s", e)
             raise RuntimeError(f"Batch classification failed: {str(e)[:200]}")
+        
+    async def classify_budget_lines(self, lines: list[str]) -> list[dict]:
+        """Batch-classify budget line items (one LLM call for the whole document)."""
+        if not self.client:
+            raise RuntimeError("DEEPSEEK_API_KEY not configured.")
+
+        import asyncio
+
+        numbered = "\n".join(
+            f"{i+1}. {t.strip()[:200]}" for i, t in enumerate(lines) if t.strip()
+        )
+        prompt = f"{BUDGET_LINE_PROMPT}\n\n{numbered}"
+
+        def _call() -> str:
+            resp = self.client.chat.completions.create(
+                model="deepseek-chat",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.0,
+                max_tokens=4000,
+            )
+            return resp.choices[0].message.content.strip()
+
+        content = await asyncio.to_thread(_call)
+
+        if content.startswith("```"):
+            content = content.strip("`").strip()
+
+        try:
+            results = json.loads(content)
+        except json.JSONDecodeError:
+            results = []
+            for m in re.finditer(r"\{[^{}]*\}", content):
+                try:
+                    results.append(json.loads(m.group()))
+                except json.JSONDecodeError:
+                    pass
+
+        if not isinstance(results, list):
+            results = []
+
+        while len(results) < len(lines):
+            results.append({"sector": "Uncategorized", "sub_sector": "", "confidence": 0.0})
+
+        return results[:len(lines)]

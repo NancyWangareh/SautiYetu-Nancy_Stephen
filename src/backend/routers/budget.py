@@ -31,8 +31,11 @@ from ..services.vector_store import VectorStore
 from ..services.ingestion import parse_pdf, chunk_documents
 from ..services.simplifier import simplify_budget_line, simplify_with_llm
 
+MIN_LINE_ITEMS = 20   # below this, fall back to raw-text chunking
+
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/budget", tags=["budget"])
+
 
 # In-memory job tracker during ingestion (per-process, acceptable for async workers)
 _jobs: dict = {}
@@ -63,13 +66,22 @@ def _ingest_background(job_id, document_id, pdf_path, embedder, store, loop, bud
         embeddings = embedder.embed_texts(texts, show_progress=True)
         _jobs[job_id]["stats"]["vector_dim"] = embedder.vector_size
 
-        _jobs[job_id]["status"] = "storing"
+        _jobs[job_id]["status"] = "indexing"
         _jobs[job_id]["progress"] = 0.8
-        collection = "budget_enacted" if budget_type == "enacted" else "budget_proposed"
-        if not store.collection_exists(collection):
-            store.create_collection(embedder.vector_size, force=False, name=collection)
-        count = store.upsert_chunks(chunks, embeddings, document_id=document_id, collection=collection)
-        _jobs[job_id]["stats"]["vectors_stored"] = count
+
+        line_items = extract_line_items(pages, document_id, budget_type, fiscal_year)
+        if len(line_items) >= MIN_LINE_ITEMS:
+            asyncio.run_coroutine_threadsafe(
+                _index_line_items(document_id, pages, budget_type, fiscal_year, embedder, store),
+                loop,
+            )
+        else:
+            # Fallback: raw text chunks (legacy behavior)
+            collection = "budget_enacted" if budget_type == "enacted" else "budget_proposed"
+            if not store.collection_exists(collection):
+                store.create_collection(embedder.vector_size, force=False, name=collection)
+            count = store.upsert_chunks(chunks, embeddings, document_id=document_id, collection=collection)
+            _jobs[job_id]["stats"]["vectors_stored"] = count
 
         _jobs[job_id]["progress"] = 1.0
         
@@ -339,15 +351,65 @@ async def get_document(document_id: str, db: AsyncSession = Depends(get_db)):
     )
 
 
-@router.delete("/documents/{document_id}")
-async def delete_document(document_id: str, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(
-        select(BudgetDocument).where(BudgetDocument.id == document_id)
+async def _index_line_items(document_id, pages, budget_type, fiscal_year, embedder, store):
+    """Classify + embed + store structured line items with location/sector."""
+    import asyncio
+    from ..db.database import async_session
+    from ..db.models import BudgetLineItem
+    from ..dependencies import get_classifier
+    from ..services.geo import normalize_location
+    from ..services.line_item_extractor import extract_line_items, line_items_to_chunks, build_search_text
+
+    items = extract_line_items(pages, document_id, budget_type, fiscal_year)
+    if not items:
+        logger.warning("No structured line items extracted for %s", document_id)
+        return
+
+    # 1. Normalize location → ward/subcounty
+    for it in items:
+        loc = normalize_location(it.get("location"))
+        it["subcounty"] = loc["subcounty"] if loc else None
+        it["ward"] = loc["ward"] if loc else None
+
+    # 2. Classify sectors (one batched LLM call for the whole document)
+    classifier = get_classifier()
+    texts = [build_search_text(i) for i in items]
+    cls = await classifier.classify_budget_lines(texts)
+    for it, c in zip(items, cls):
+        it["sector"] = c.get("sector")
+        it["sub_sector"] = c.get("sub_sector")
+
+    # 3. Embed + store enriched line items in Qdrant
+    chunks = line_items_to_chunks(items)
+    chunk_texts = [c["text"] for c in chunks]
+    embeddings = await asyncio.to_thread(embedder.embed_texts, chunk_texts, False)
+    collection = "budget_enacted" if budget_type == "enacted" else "budget_proposed"
+    if not store.collection_exists(collection):
+        store.create_collection(embedder.vector_size, force=False, name=collection)
+    await asyncio.to_thread(
+        store.upsert_chunks, chunks, embeddings, 100, collection, document_id
     )
-    doc = result.scalar_one_or_none()
-    if not doc:
-        raise HTTPException(404, "Document not found")
-    
-    await db.delete(doc)
-    await db.commit()
-    return {"message": f"Document {document_id} deleted", "id": document_id}
+
+    # 4. Persist line items (now with sector/sub_sector/subcounty)
+    async with async_session() as session:
+        for it in items:
+            session.add(BudgetLineItem(
+                document_id=document_id,
+                budget_type=budget_type,
+                fiscal_year=fiscal_year,
+                page_number=it.get("page_number"),
+                s_no=it.get("s_no"),
+                project_code=it.get("project_code"),
+                project_name=it.get("project_name"),
+                description=it.get("description"),
+                location=it.get("location"),
+                approved_amount=it.get("approved_amount"),
+                revised_i_amount=it.get("revised_i_amount"),
+                revised_ii_amount=it.get("revised_ii_amount"),
+                sector=it.get("sector"),
+                sub_sector=it.get("sub_sector"),
+                source_text=it.get("source_text"),
+            ))
+        await session.commit()
+
+    logger.info("Indexed %d line items for doc %s (type=%s)", len(chunks), document_id, budget_type)

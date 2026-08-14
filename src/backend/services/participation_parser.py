@@ -1,15 +1,17 @@
 """
 Participation PDF Parser — extracts citizen input points from public
-participation documents using pdfplumber text extraction only.
+participation documents using pdfplumber text extraction, with an OCR
+fallback for scanned PDFs.
 
-No OCR — scanned pages simply yield no text, and the human
-selection step filters out garbage.
+The human selection step filters out garbage.
 """
 
+import io
 import re
 from pathlib import Path
 
 import pdfplumber
+from .geo import SUBCOUNTIES
 
 
 # ── Splitters ─────────────────────────────────────────────────────────────
@@ -19,25 +21,64 @@ POINT_SPLITTERS = [
     re.compile(r"(?<=\n)\s*[•\-\*\→\✓\✔]\s+(?=\S)"),
 ]
 
-
-def parse_participation_pdf(file_path: str | Path) -> list[dict]:
-    """Extract text from each page. Skips pages with no extractable text."""
-    path = Path(file_path)
-    if not path.exists():
-        raise FileNotFoundError(f"PDF not found: {path}")
-
+def _extract_text_pages(path: Path) -> list[dict]:
     pages = []
     with pdfplumber.open(str(path)) as pdf:
         for i, page in enumerate(pdf.pages, start=1):
             text = page.extract_text() or ""
             if text.strip():
                 pages.append({"page_number": i, "text": text.strip()})
-
     return pages
 
 
+def _ocr_pages(path: Path) -> list[dict]:
+    """Fallback for scanned PDFs: render pages to images and OCR them."""
+    try:
+        import fitz
+        import pytesseract
+        from PIL import Image
+    except ImportError as e:
+        raise RuntimeError(
+            "This PDF is scanned (no text layer). Install OCR support: "
+            "pip install pymupdf pytesseract pillow, and install Tesseract OCR."
+        ) from e
+
+    pages = []
+    with fitz.open(str(path)) as doc:
+        for i, page in enumerate(doc, start=1):
+            pix = page.get_pixmap(dpi=200)
+            img = Image.open(io.BytesIO(pix.tobytes("png")))
+            text = pytesseract.image_to_string(img)
+            if text.strip():
+                pages.append({"page_number": i, "text": text.strip()})
+    return pages
+
+
+def parse_participation_pdf(file_path: str | Path) -> list[dict]:
+    path = Path(file_path)
+    if not path.exists():
+        raise FileNotFoundError(f"PDF not found: {path}")
+
+    pages = _extract_text_pages(path)
+    if not pages: 
+        pages = _ocr_pages(path)
+    return pages
+
+
+def _looks_like_section_header(line: str) -> str | None:
+    s = re.sub(r"\s+", " ", line).strip()
+    if not s or len(s) < 3 or len(s) > 80:
+        return None
+    for sc in SUBCOUNTIES:
+        if sc.lower() in s.lower():
+            return sc
+    if s.isupper() and len(s.split()) <= 6 and not re.search(r"\d", s):
+        return s.title()
+    return None
+
+
 def extract_points(pages: list[dict]) -> list[dict]:
-    """Break PDF pages into individual citizen input points."""
+    """Break PDF pages into citizen points, tracking the current subcounty section."""
     points: list[dict] = []
     seen_texts: set[str] = set()
     counter = 0
@@ -45,42 +86,60 @@ def extract_points(pages: list[dict]) -> list[dict]:
     for page in pages:
         page_num = page["page_number"]
         page_text = page["text"]
+        current_section = ""
 
-        split_positions = _find_split_positions(page_text)
-        if not split_positions:
-            blocks = _fallback_split(page_text)
-        else:
-            blocks = []
-            prev = 0
-            for pos in split_positions:
-                block = page_text[prev:pos].strip()
-                if block:
-                    blocks.append(block)
-                prev = pos
-            last = page_text[prev:].strip()
-            if last:
-                blocks.append(last)
+        # Prefer numbered/bullet/blank-line splits; fall back to sentences
+        positions = _find_split_positions(page_text)
+        blocks = (
+            _split_by_positions(page_text, positions)
+            if positions
+            else _fallback_split(page_text)
+        )
 
         for block in blocks:
+            block = block.strip()
+            if not block:
+                continue
+
+            # If the block starts with a subcounty header, update the section
+            first_line = block.split("\n", 1)[0].strip()
+            header = _looks_like_section_header(first_line)
+            if header:
+                current_section = header
+                block = block[len(first_line):].strip()
+                if not block:
+                    continue
+
             cleaned = _clean_point_text(block)
             if len(cleaned) < 20:
                 continue
-            norm = cleaned.lower()
-            if norm in seen_texts:
+            if cleaned.lower() in seen_texts:
                 continue
-            seen_texts.add(norm)
-
+            seen_texts.add(cleaned.lower())
             counter += 1
             points.append({
                 "point_id": f"PT-{counter:03d}",
                 "text": cleaned,
                 "page_number": page_num,
-                "section": "",
+                "section": current_section,
                 "char_count": len(cleaned),
             })
 
     return points
 
+
+def _split_by_positions(text: str, positions: list[int]) -> list[str]:
+    blocks: list[str] = []
+    prev = 0
+    for pos in positions:
+        block = text[prev:pos].strip()
+        if block:
+            blocks.append(block)
+        prev = pos
+    last = text[prev:].strip()
+    if last:
+        blocks.append(last)
+    return blocks
 
 def _find_split_positions(text: str) -> list[int]:
     positions: set[int] = set()

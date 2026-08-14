@@ -6,10 +6,15 @@ from .embedder import EmbeddingService
 from .vector_store import VectorStore
 from .simplifier import simplify_with_llm, simplify_budget_line
 from ..config import settings
+import asyncio
+import openai
+from .geo import normalize_location
+
 
 logger = logging.getLogger(__name__)
 
 MATCH_THRESHOLDS = {"matched": 0.80, "partial": 0.70}
+VERIFY_HIGH = 0.92
 
 
 class MatcherService:
@@ -33,44 +38,64 @@ class MatcherService:
                 "Upload a budget PDF first via /api/budget/upload."
             )
 
-        # Build enriched query
-        if sector and sector != "Uncategorized":
-            enriched_query = f"{sector}: {sub_sector}. {citizen_text}"
-        else:
-            enriched_query = citizen_text
+        query = (
+            f"{sector}: {sub_sector}. {citizen_text}"
+            if sector and sector != "Uncategorized"
+            else citizen_text
+        )
+        query_vector = self.embedder.embed_query(query)
 
-        # Semantic search
-        query_vector = self.embedder.embed_query(enriched_query)
-        hits = self.store.search(query_vector, top_k=5, collection=collection)
+        loc = normalize_location(ward)
+        sector_key = sector if sector and sector != "Uncategorized" else None
+
+        # Pass 1: constrained to the citizen's subcounty AND sector
+        hits = self.store.search(
+            query_vector,
+            top_k=5,
+            collection=collection,
+            subcounty=loc["subcounty"] if loc else None,
+            sector=sector_key,
+        )
+        relaxed_location = False
+        if not hits or hits[0]["score"] < MATCH_THRESHOLDS["partial"]:
+            # Pass 2: drop the location constraint, keep sector
+            hits = self.store.search(
+                query_vector, top_k=5, collection=collection, sector=sector_key
+            )
+            relaxed_location = True
 
         if not hits or hits[0]["score"] < MATCH_THRESHOLDS["partial"]:
-            return self._no_match()
+            return self._no_match(reason="No relevant budget provision found.")
 
         best = hits[0]
         base_score = best["score"]
-        boosted_score = min(0.99, base_score + participation_boost)
 
-        # Determine status from boosted score
+        # Verify with the LLM only in the uncertain band (or when location was relaxed)
+        if relaxed_location or MATCH_THRESHOLDS["partial"] <= base_score < VERIFY_HIGH:
+            verdict = await self._verify_match(citizen_text, ward, best.get("text", ""))
+            if not verdict["relevant"]:
+                return self._no_match(reason=verdict.get("reason", "Relevance check failed."))
+
+        boosted_score = min(0.99, base_score + participation_boost)
         if boosted_score >= MATCH_THRESHOLDS["matched"]:
-            status = "matched"
-            label = "Found"
+            status, label = "matched", "Found"
         elif boosted_score >= MATCH_THRESHOLDS["partial"]:
-            status = "partial"
-            label = "Partial match"
+            status, label = "partial", "Partial match"
         else:
-            status = "ignored"
-            label = "No match"
+            status, label = "ignored", "No match"
 
         excerpt = best["text"].strip()[:300]
         page = best.get("page_number", "?")
-
-        # Simplify
         budget_text = best.get("text", "")
-        simplified = simplify_with_llm(budget_text) if settings.DEEPSEEK_API_KEY else simplify_budget_line(budget_text)
+        simplified = (
+            simplify_with_llm(budget_text)
+            if settings.DEEPSEEK_API_KEY
+            else simplify_budget_line(budget_text)
+        )
 
-        # Alternative matches
         alternatives = json.dumps([
-            {"text": h.get("text", "")[:200], "page": h.get("page_number"), "score": round(h.get("score", 0), 4)}
+            {"text": h.get("text", "")[:200], "page": h.get("page_number"),
+             "score": round(h.get("score", 0), 4)}
             for h in hits[1:4]
         ])
 
@@ -78,7 +103,8 @@ class MatcherService:
             "matched_line_id": best.get("chunk_id", ""),
             "matched_sector": sector,
             "matched_description": best.get("text", "")[:500],
-            "matched_amount_ksh": None,
+            "matched_amount_ksh": best.get("amount_ksh"),
+            "matched_location": best.get("location") or best.get("ward") or "",
             "source_page": page,
             "budget_result": f"[{label} · p.{page} · {boosted_score:.0%}] {excerpt}",
             "status": status,
@@ -89,15 +115,54 @@ class MatcherService:
             "category": simplified.get("category", ""),
             "alternative_matches": alternatives,
         }
+    
+    async def _verify_match(self, citizen_text: str, ward: str | None, budget_text: str) -> dict:
+        """LLM gate: is this budget line actually funding THIS request (type + location)?"""
+        if not settings.DEEPSEEK_API_KEY:
+            return {"relevant": True, "reason": ""}
 
-    def _no_match(self) -> dict:
+        prompt = (
+            f'A citizen in ward "{ward or "unknown"}" made this request:\n'
+            f'"{citizen_text[:400]}"\n\n'
+            f'Candidate budget line:\n"{budget_text[:600]}"\n\n'
+            "Does this budget line actually fund THIS specific request? "
+            "It must match BOTH the type of work AND the location (same ward/subcounty).\n"
+            'Return ONLY JSON: {"relevant": true/false, "reason": "short explanation"}'
+        )
+
+        def _call() -> str:
+            client = openai.OpenAI(
+                api_key=settings.DEEPSEEK_API_KEY, base_url=settings.DEEPSEEK_BASE_URL
+            )
+            resp = client.chat.completions.create(
+                model="deepseek-chat",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.0,
+                max_tokens=120,
+            )
+            return resp.choices[0].message.content.strip()
+
+        content = await asyncio.to_thread(_call)
+        if content.startswith("```"):
+            content = content.strip("`").strip()
+
+        try:
+            data = json.loads(content)
+            return {"relevant": bool(data.get("relevant")), "reason": data.get("reason", "")}
+        except Exception:
+            logger.warning("Verification parse failed: %s", content)
+            return {"relevant": True, "reason": ""}   # fail open rather than silent-drop
+
+
+    def _no_match(self, reason: str = "No matching budget provision found.") -> dict:
         return {
             "matched_line_id": None,
             "matched_sector": "",
-            "matched_description": "No matching budget provision found.",
+            "matched_description": reason,
             "matched_amount_ksh": None,
+            "matched_location": "",
             "source_page": None,
-            "budget_result": "No matching budget provision found in the enacted budget.",
+            "budget_result": "No matching budget provision found in the budget.",
             "status": "ignored",
             "similarity_score": 0.0,
             "boosted_score": 0.0,

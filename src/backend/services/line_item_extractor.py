@@ -9,6 +9,7 @@ Handles the specific table format used in NCCG budget documents:
 
 import re
 import logging
+import uuid
 
 logger = logging.getLogger(__name__)
 
@@ -120,3 +121,31 @@ def extract_line_items(pages: list[dict], document_id: str, budget_type: str, fi
         len(items), len(pages), document_id, budget_type,
     )
     return items
+
+def build_search_text(item: dict) -> str:
+    """Search text for a line item: description + location."""
+    desc = item.get("description") or item.get("project_name") or ""
+    loc = item.get("location")
+    return f"{desc}. Location: {loc}" if loc else desc
+
+
+def line_items_to_chunks(items: list[dict]) -> list[dict]:
+    """Turn structured line items into Qdrant chunks with enriched payload."""
+    chunks = []
+    for it in items:
+        text = build_search_text(it).strip()
+        if len(text) < 30:
+            continue
+        chunks.append({
+            "chunk_id": f"LI-{it.get('project_code') or it.get('s_no') or uuid.uuid4().hex[:8]}",
+            "text": text,
+            "page_number": it.get("page_number"),
+            "location": it.get("location"),
+            "ward": it.get("ward"),
+            "subcounty": it.get("subcounty"),
+            "sector": it.get("sector"),
+            "sub_sector": it.get("sub_sector"),
+            "amount_ksh": it.get("approved_amount"),
+            "project_code": it.get("project_code"),
+        })
+    return chunks

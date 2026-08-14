@@ -15,7 +15,7 @@ class ParticipationCheckResponse(BaseModel):
 
 class MatchPointsRequest(BaseModel):
     point_ids: list[str] = Field(..., min_length=1)
-    ward: str = Field(default="Umoja I")
+    ward: str | None = Field(default=None)  # optional fallback; per-point section wins
     session_id: str = Field(...)  # Database-backed session ID
 
 

@@ -20,7 +20,6 @@ function Participation() {
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [matching, setMatching] = useState(false);
   const [results, setResults] = useState(null);
-  const [ward, setWard] = useState("Umoja I");
   const [toast, setToast] = useState(null);
   const [pdfName, setPdfName] = useState("");
   const [sessionId, setSessionId] = useState(null);
@@ -102,7 +101,6 @@ function Participation() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           point_ids: Array.from(selectedIds),
-          ward,
           session_id: sessionId,
         }),
       });
@@ -159,14 +157,6 @@ function Participation() {
             <input ref={fileRef} type="file" accept=".pdf" onChange={handleFileChange} className="hidden" />
           </div>
 
-          <div className="w-40">
-            <label className="mb-1.5 block text-sm font-medium text-slate-600">Ward</label>
-            <input
-              type="text" value={ward} onChange={(e) => setWard(e.target.value)}
-              className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 outline-none"
-            />
-          </div>
-
           <button
             onClick={handleUpload}
             disabled={!file || uploading}
@@ -192,6 +182,14 @@ function Participation() {
                 {selectedIds.size === points.length ? "Deselect All" : "Select All"}
               </button>
               <span className="text-xs text-slate-400">{selectedIds.size} selected</span>
+              <button
+                onClick={handleMatch}
+                disabled={selectedIds.size === 0 || matching}
+                className="flex items-center gap-1.5 rounded-lg bg-[#0B3523] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#13402A] disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                {matching ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Search className="h-3.5 w-3.5" />}
+                Match {selectedIds.size}
+              </button>
             </div>
           </div>
 
@@ -208,6 +206,11 @@ function Participation() {
                     <p className="text-sm leading-relaxed text-slate-700">{point.text}</p>
                     <div className="mt-1 flex flex-wrap items-center gap-2">
                       <span className="inline-flex items-center rounded-md bg-slate-100 px-2 py-0.5 text-xs text-slate-500">{point.point_id}</span>
+                      {point.section && (
+                        <span className="inline-flex items-center rounded-md border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs text-emerald-700">
+                          {point.section}
+                        </span>
+                      )}
                       <span className="text-xs text-slate-400">p.{point.page_number} · {point.char_count} chars</span>
                     </div>
                   </div>

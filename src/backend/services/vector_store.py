@@ -16,6 +16,11 @@ logger = logging.getLogger(__name__)
 BUDGET_COLLECTION = "budget_chunks"
 PARTICIPATION_COLLECTION = "participation_chunks"
 
+PAYLOAD_KEYS = (
+    "location", "ward", "subcounty", "sector", "sub_sector",
+    "amount_ksh", "project_code",
+)
+
 
 class VectorStore:
     """Qdrant vector store for budget & participation document chunks."""
@@ -86,6 +91,10 @@ class VectorStore:
                 }
                 if document_id:
                     payload["document_id"] = document_id
+                for key in PAYLOAD_KEYS:
+                    val = chunk.get(key)
+                    if val is not None and val != "":
+                        payload[key] = val
                 if chunk.get("metadata"):
                     payload["metadata"] = chunk["metadata"]
 
@@ -114,14 +123,24 @@ class VectorStore:
         score_threshold: float = 0.0,
         collection: str = BUDGET_COLLECTION,
         document_id: str | None = None,
+        location: str | None = None,
+        subcounty: str | None = None,
+        sector: str | None = None,
     ) -> list[dict]:
-        """Semantic search over a collection."""
-        query_filter = None
+        """Semantic search with optional hard filters (location/subcounty/sector)."""
+        from qdrant_client.models import Filter, FieldCondition, MatchValue
+
+        must = []
         if document_id:
-            from qdrant_client.models import Filter, FieldCondition, MatchValue
-            query_filter = Filter(
-                must=[FieldCondition(key="document_id", match=MatchValue(value=document_id))]
-            )
+            must.append(FieldCondition(key="document_id", match=MatchValue(value=document_id)))
+        if location:
+            must.append(FieldCondition(key="location", match=MatchValue(value=location)))
+        if subcounty:
+            must.append(FieldCondition(key="subcounty", match=MatchValue(value=subcounty)))
+        if sector:
+            must.append(FieldCondition(key="sector", match=MatchValue(value=sector)))
+
+        query_filter = Filter(must=must) if must else None
 
         results = self.client.query_points(
             collection_name=collection,
@@ -138,6 +157,13 @@ class VectorStore:
                 "page_number": (hit.payload or {}).get("page_number", 0),
                 "chunk_id": (hit.payload or {}).get("chunk_id", ""),
                 "document_id": (hit.payload or {}).get("document_id", ""),
+                "location": (hit.payload or {}).get("location", ""),
+                "ward": (hit.payload or {}).get("ward", ""),
+                "subcounty": (hit.payload or {}).get("subcounty", ""),
+                "sector": (hit.payload or {}).get("sector", ""),
+                "sub_sector": (hit.payload or {}).get("sub_sector", ""),
+                "amount_ksh": (hit.payload or {}).get("amount_ksh"),
+                "project_code": (hit.payload or {}).get("project_code", ""),
                 "metadata": (hit.payload or {}).get("metadata", {}),
             }
             for hit in results.points

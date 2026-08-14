@@ -66,6 +66,7 @@ async def upload_participation_pdf(
 
     try:
         result = process_participation_pdf(tmp_path, county=county if county else None)
+        result["filename"] = file.filename  # original name, not the temp file
 
         # Store session in DB (replaces the old global _participation_session)
         session = ParticipationSession(
@@ -83,6 +84,10 @@ async def upload_participation_pdf(
             "session_id": session.id,
             **result,
         }
+
+    except Exception as e:
+        logger.exception("Participation PDF processing failed")
+        raise HTTPException(400, str(e)[:300]) from e
 
     finally:
         Path(tmp_path).unlink(missing_ok=True)
@@ -130,22 +135,23 @@ async def match_selected_points(
         point = points_map.get(pid, {})
         text = point.get("text", "").strip()
         if len(text) < 10:
-            continue  # skip empty/garbage — human already filtered, this is a safety net
+            continue
 
-        # Classify this ONE selected point
+        # location comes from the PDF's subcounty grouping, not a single form field
+        location = point.get("section") or payload.ward
+
         classification = await classifier.classify(text)
 
         match = await matcher.match(
             citizen_text=text,
             sector=classification["sector"],
             sub_sector=classification["sub_sector"],
-            ward=payload.ward,
+            ward=location,          # ← was payload.ward
             collection=collection,
         )
 
-        # Persist as Submission + BudgetMatch — only selected points reach the DB
         submission = Submission(
-            ward=payload.ward,
+            ward=location or "Unknown",   # ← was payload.ward
             channel=Channel.baraza,
             citizen_input=text[:5000],
             sector=classification["sector"],

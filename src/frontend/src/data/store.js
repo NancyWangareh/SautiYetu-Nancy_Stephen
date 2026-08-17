@@ -50,6 +50,15 @@ export async function submitToBackend(text, ward = "Umoja I", channel = "Web For
   return record;
 }
 
+export async function deleteSubmission(id) {
+  const res = await fetch(`${API_BASE}/api/submissions/${id}`, {
+    method: "DELETE",
+  });
+  if (!res.ok) throw new Error("Failed to delete submission");
+  records = records.filter((r) => r.id !== id);
+  emit();
+}
+
 export function getSubmissionCount() {
   return records.length;
 }

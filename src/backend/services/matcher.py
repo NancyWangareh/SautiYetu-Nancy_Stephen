@@ -13,7 +13,7 @@ from .geo import normalize_location
 
 logger = logging.getLogger(__name__)
 
-MATCH_THRESHOLDS = {"matched": 0.80, "partial": 0.70}
+MATCH_THRESHOLD = 0.70
 VERIFY_HIGH = 0.92
 
 
@@ -57,32 +57,32 @@ class MatcherService:
             sector=sector_key,
         )
         relaxed_location = False
-        if not hits or hits[0]["score"] < MATCH_THRESHOLDS["partial"]:
+        if not hits or hits[0]["score"] < MATCH_THRESHOLD:
             # Pass 2: drop the location constraint, keep sector
             hits = self.store.search(
                 query_vector, top_k=5, collection=collection, sector=sector_key
             )
             relaxed_location = True
 
-        if not hits or hits[0]["score"] < MATCH_THRESHOLDS["partial"]:
+        if not hits or hits[0]["score"] < MATCH_THRESHOLD:
+            # Pass 3: drop all filters (sector/subcounty labels may not align)
+            hits = self.store.search(query_vector, top_k=5, collection=collection)
+            relaxed_location = True
+
+        if not hits or hits[0]["score"] < MATCH_THRESHOLD:
             return self._no_match(reason="No relevant budget provision found.")
 
         best = hits[0]
         base_score = best["score"]
 
         # Verify with the LLM only in the uncertain band (or when location was relaxed)
-        if relaxed_location or MATCH_THRESHOLDS["partial"] <= base_score < VERIFY_HIGH:
+        if relaxed_location or MATCH_THRESHOLD <= base_score < VERIFY_HIGH:
             verdict = await self._verify_match(citizen_text, ward, best.get("text", ""))
             if not verdict["relevant"]:
                 return self._no_match(reason=verdict.get("reason", "Relevance check failed."))
 
         boosted_score = min(0.99, base_score + participation_boost)
-        if boosted_score >= MATCH_THRESHOLDS["matched"]:
-            status, label = "matched", "Found"
-        elif boosted_score >= MATCH_THRESHOLDS["partial"]:
-            status, label = "partial", "Partial match"
-        else:
-            status, label = "ignored", "No match"
+        status, label = ("present", "Found") if boosted_score >= MATCH_THRESHOLD else ("absent", "No match")
 
         excerpt = best["text"].strip()[:300]
         page = best.get("page_number", "?")
@@ -163,7 +163,7 @@ class MatcherService:
             "matched_location": "",
             "source_page": None,
             "budget_result": "No matching budget provision found in the budget.",
-            "status": "ignored",
+            "status": "absent",
             "similarity_score": 0.0,
             "boosted_score": 0.0,
             "simplified": "",
@@ -198,19 +198,14 @@ class MatcherService:
             vec = qv.tolist() if hasattr(qv, 'tolist') else qv
             hits = self.store.search(vec, top_k=5, collection=collection)
 
-            if not hits or hits[0]["score"] < MATCH_THRESHOLDS["partial"]:
+            if not hits or hits[0]["score"] < MATCH_THRESHOLD:
                 results.append(self._no_match())
                 continue
 
             best = hits[0]
             base_score = best["score"]
 
-            if base_score >= MATCH_THRESHOLDS["matched"]:
-                status, label = "matched", "Found"
-            elif base_score >= MATCH_THRESHOLDS["partial"]:
-                status, label = "partial", "Partial match"
-            else:
-                status, label = "ignored", "No match"
+            status, label = ("present", "Found") if base_score >= MATCH_THRESHOLD else ("absent", "No match")
 
             excerpt = best["text"].strip()[:300]
             page = best.get("page_number", "?")

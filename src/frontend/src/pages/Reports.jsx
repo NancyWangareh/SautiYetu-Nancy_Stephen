@@ -6,7 +6,6 @@ import {
   Loader2,
   AlertCircle,
   CheckCircle2,
-  AlertTriangle,
   XCircle,
   TrendingUp,
   MapPin,
@@ -20,15 +19,13 @@ import {
 import { API_BASE } from "../config"; 
 
 const STATUS_COLORS = {
-  matched: "bg-emerald-100 text-emerald-800 border-emerald-300",
-  partial: "bg-amber-100 text-amber-800 border-amber-300",
-  ignored: "bg-red-100 text-red-800 border-red-300",
+  present: "bg-emerald-100 text-emerald-800 border-emerald-300",
+  absent: "bg-red-100 text-red-800 border-red-300",
 };
 
 const STATUS_ICONS = {
-  matched: CheckCircle2,
-  partial: AlertTriangle,
-  ignored: XCircle,
+  present: CheckCircle2,
+  absent: XCircle,
 };
 
 function Reports() {
@@ -201,9 +198,8 @@ function Reports() {
               className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
             >
               <option value="">All Statuses</option>
-              <option value="matched">Matched / Funded</option>
-              <option value="partial">Partially Funded</option>
-              <option value="ignored">Not Funded</option>
+              <option value="present">Present</option>
+              <option value="absent">Absent</option>
             </select>
           </div>
           <div className="flex flex-col gap-1">
@@ -256,7 +252,7 @@ function Reports() {
       {report && !loading && (
         <>
           {/* Summary Cards */}
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
             <SummaryCard
               label="Total Submissions"
               value={report.summary.total}
@@ -265,22 +261,15 @@ function Reports() {
               bg="bg-blue-50"
             />
             <SummaryCard
-              label="Matched / Funded"
-              value={report.summary.matched}
+              label="Present in Budget"
+              value={report.summary.present}
               icon={CheckCircle2}
               color="text-emerald-600"
               bg="bg-emerald-50"
             />
             <SummaryCard
-              label="Partially Funded"
-              value={report.summary.partial}
-              icon={AlertTriangle}
-              color="text-amber-600"
-              bg="bg-amber-50"
-            />
-            <SummaryCard
-              label="Not Funded"
-              value={report.summary.ignored}
+              label="Absent from Budget"
+              value={report.summary.absent}
               icon={XCircle}
               color="text-red-600"
               bg="bg-red-50"
@@ -320,7 +309,7 @@ function Reports() {
               </div>
             </div>
             <p className="mt-3 text-xs text-slate-400">
-              Based on {report.summary.total} citizen submissions. &ldquo;Addressed&rdquo; = matched or partially funded.
+              Based on {report.summary.total} citizen submissions. &ldquo;Addressed&rdquo; = present in the enacted budget.
             </p>
           </div>
 
@@ -343,7 +332,7 @@ function Reports() {
                       value={s.count}
                       max={report.bySector[0]?.count || 0}
                       color="bg-emerald-500"
-                      subLabel={`✓${s.matched} ~${s.partial} ✗${s.ignored}`}
+                      subLabel={`✓${s.present} present · ✗${s.absent} absent`}
                     />
                   ))}
                 </div>
@@ -367,7 +356,7 @@ function Reports() {
                       value={w.count}
                       max={report.byWard[0]?.count || 0}
                       color="bg-blue-500"
-                      subLabel={`✓${w.matched} ~${w.partial} ✗${w.ignored}`}
+                      subLabel={`✓${w.present} present · ✗${w.absent} absent`}
                     />
                   ))}
                 </div>

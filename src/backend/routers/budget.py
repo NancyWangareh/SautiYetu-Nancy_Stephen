@@ -70,7 +70,9 @@ def _ingest_background(job_id, document_id, pdf_path, embedder, store, loop, bud
         _jobs[job_id]["progress"] = 0.8
 
         line_items = extract_line_items(pages, document_id, budget_type, fiscal_year)
+        count = 0
         if len(line_items) >= MIN_LINE_ITEMS:
+            count = len(line_items)
             asyncio.run_coroutine_threadsafe(
                 _index_line_items(document_id, pages, budget_type, fiscal_year, embedder, store),
                 loop,
@@ -84,17 +86,6 @@ def _ingest_background(job_id, document_id, pdf_path, embedder, store, loop, bud
             _jobs[job_id]["stats"]["vectors_stored"] = count
 
         _jobs[job_id]["progress"] = 1.0
-        
-        async def _store_line_items():
-            from ..db.database import async_session
-            line_items = extract_line_items(pages, document_id, budget_type, fiscal_year)
-            async with async_session() as session:
-                for item in line_items:
-                    session.add(BudgetLineItem(**item))
-                await session.commit()
-                logger.info("Stored %d line items for doc %s", len(line_items), document_id)
-
-        asyncio.run_coroutine_threadsafe(_store_line_items(), loop)
 
         # Mark document as ready in DB
         async def _mark_ready():

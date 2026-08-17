@@ -19,16 +19,12 @@ import { API_BASE } from "../config";
 
 /* ─── Status badge config ─── */
 const STATUS_CONFIG = {
-  matched: {
-    label: "Matched / Funded",
+  present: {
+    label: "Present",
     className: "bg-emerald-100 text-emerald-800 border-emerald-300",
   },
-  partial: {
-    label: "Partially Funded",
-    className: "bg-amber-100 text-amber-800 border-amber-300",
-  },
-  ignored: {
-    label: "Ignored / Not Funded",
+  absent: {
+    label: "Absent",
     className: "bg-red-100 text-red-800 border-red-300",
   },
 };
@@ -44,8 +40,8 @@ function getParticipation(record) {
 /* ─── MatchCard component ─── */
 function MatchCard({ record }) {
   const m = record.match || {};
-  const status = m.status || "ignored";
-  const statusCfg = STATUS_CONFIG[status] || STATUS_CONFIG.ignored;
+  const status = m.status || "absent";
+  const statusCfg = STATUS_CONFIG[status] || STATUS_CONFIG.absent;
   const [showSimplified, setShowSimplified] = useState(false);
   const part = getParticipation(record);
 

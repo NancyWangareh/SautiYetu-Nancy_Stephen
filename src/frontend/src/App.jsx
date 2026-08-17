@@ -1,10 +1,9 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { 
   ShieldCheck, 
   FileUp, 
   FileText,
   Users,
-  GitCompareArrows,
   FolderOpen,
   BarChart3,
   Inbox,
@@ -31,8 +30,6 @@ function App() {
         return <Participation />;
       case 'documents':
         return <BudgetDocuments />;
-      case 'reconciliation':
-        return <ReconciliationPage />;
       case 'reports':
         return <Reports />;
       case 'submissions':
@@ -77,7 +74,7 @@ function App() {
               onClick={() => setActiveView('upload')}
               icon={<FileUp size={18} />}
               label="Upload Budget PDF"
-              sub="Proposed or Enacted"
+              sub="Enacted budget"
             />
 
             <NavButton
@@ -119,14 +116,6 @@ function App() {
             </p>
 
             <NavButton
-              active={activeView === 'reconciliation'}
-              onClick={() => setActiveView('reconciliation')}
-              icon={<GitCompareArrows size={18} />}
-              label="Reconciliation"
-              sub="Proposed vs Enacted"
-            />
-            
-            <NavButton
               active={activeView === 'matches'}
               onClick={() => setActiveView('matches')}
               icon={<Search size={18} />}
@@ -149,7 +138,7 @@ function App() {
           <div className="text-[11px] text-[#82A895] leading-relaxed">
             County: Nairobi · FY 2025/26
             <br />
-            <span className="text-[#5A8A72]">Budget Lifecycle Tracker</span>
+            <span className="text-[#5A8A72]">Citizen budget accountability</span>
           </div>
         </div>
       </aside>
@@ -163,10 +152,9 @@ function App() {
             Budget Accountability Dashboard — Nairobi County
           </span>
           <span className="ml-auto text-xs text-gray-400">
-            {activeView === 'upload' && "Upload Proposed or Enacted Budget PDF"}
+            {activeView === 'upload' && "Upload Enacted Budget PDF"}
             {activeView === 'documents' && "All Budget Documents"}
             {activeView === 'participation' && "Public Participation Matching"}
-            {activeView === 'reconciliation' && "Proposed vs Enacted Reconciliation"}
             {activeView === 'reports' && "CSO Reports & Analysis"}
           </span>
         </header>
@@ -199,68 +187,6 @@ function NavButton({ active, onClick, icon, label, sub = null, disabled = false 
         {sub && <div className="text-[10px] text-[#82A895] leading-tight">{sub}</div>}
       </div>
     </button>
-  );
-}
-
-/* ─── Placeholder until reconciliation page is built ─── */
-function ReconciliationPage() {
-  const [submissions, setSubmissions] = useState([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    fetch("http://localhost:8000/api/submissions?limit=200")
-      .then(r => r.json())
-      .then(data => setSubmissions(Array.isArray(data) ? data : (data.submissions || [])))
-      .finally(() => setLoading(false));
-  }, []);
-
-  const funded = submissions.filter(s => s.match?.status === "matched").length;
-  const partial = submissions.filter(s => s.match?.status === "partial").length;
-  const ignored = submissions.filter(s => s.match?.status === "ignored").length;
-
-  if (loading) return <div className="flex items-center justify-center py-16 text-slate-400">Loading...</div>;
-
-  return (
-    <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6">
-      <h1 className="text-2xl font-bold tracking-tight text-slate-800 mb-2">Reconciliation</h1>
-      <p className="text-sm text-slate-500 mb-6">Compare citizen concerns against the budget to see what was funded.</p>
-
-      <div className="grid grid-cols-3 gap-4 mb-8">
-        <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-5 text-center">
-          <p className="text-3xl font-bold text-emerald-700">{funded}</p>
-          <p className="text-sm text-emerald-600">Funded</p>
-        </div>
-        <div className="rounded-xl border border-amber-200 bg-amber-50 p-5 text-center">
-          <p className="text-3xl font-bold text-amber-700">{partial}</p>
-          <p className="text-sm text-amber-600">Partially Funded</p>
-        </div>
-        <div className="rounded-xl border border-red-200 bg-red-50 p-5 text-center">
-          <p className="text-3xl font-bold text-red-700">{ignored}</p>
-          <p className="text-sm text-red-600">Not Funded</p>
-        </div>
-      </div>
-
-      {submissions.length === 0 ? (
-        <div className="text-center py-12 text-slate-400">Upload participation data to see reconciliation.</div>
-      ) : (
-        <div className="space-y-2">
-          {submissions.filter(s => s.citizen_input?.length > 10).slice(0, 20).map(s => (
-            <div key={s.id} className="flex items-center justify-between rounded-lg border border-slate-200 bg-white p-4 text-sm">
-              <div className="flex-1 min-w-0">
-                <span className="font-mono text-xs text-slate-400 mr-2">{s.id}</span>
-                <span className="text-slate-700">{(s.citizen_input || "").slice(0, 120)}{(s.citizen_input?.length || 0) > 120 ? "…" : ""}</span>
-              </div>
-              <span className={`shrink-0 ml-3 rounded-full px-2.5 py-0.5 text-xs font-medium ${
-                s.match?.status === "matched" ? "bg-emerald-100 text-emerald-700" :
-                s.match?.status === "partial" ? "bg-amber-100 text-amber-700" :
-                "bg-red-100 text-red-700"}`}>
-                {s.match?.status === "matched" ? "Funded" : s.match?.status === "partial" ? "Partial" : "Not Funded"}
-              </span>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
   );
 }
 

@@ -20,6 +20,9 @@ sentence-transformers
 # PDF parsing
 pdfplumber
 langchain-text-splitters
+pymupdf
+pytesseract
+pillow
 
 # LLM
 openai

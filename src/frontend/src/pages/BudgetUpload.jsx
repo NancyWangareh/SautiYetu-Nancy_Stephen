@@ -24,7 +24,7 @@ const STAGES = [
 function BudgetUpload() {
   const [file, setFile] = useState(null);
   const [fiscalYear, setFiscalYear] = useState("2024/25");
-  const [budgetType, setBudgetType] = useState("proposed");
+  const [budgetType, setBudgetType] = useState("enacted");
   const [jobId, setJobId] = useState(null);
   const [status, setStatus] = useState(null);
   const [polling, setPolling] = useState(false);
@@ -89,8 +89,8 @@ function BudgetUpload() {
           Upload Budget Document
         </h1>
         <p className="mt-1 text-sm text-slate-500">
-          Upload a county budget PDF as either a Proposed (draft) or Enacted
-          (final) budget. Each type is indexed separately for reconciliation.
+          Upload the enacted (final) county budget PDF. Citizen concerns will
+          be matched against this to see what actually got funded.
         </p>
       </div>
 
@@ -122,9 +122,6 @@ function BudgetUpload() {
                   onChange={(e) => setBudgetType(e.target.value)}
                   className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-200"
                 >
-                  <option value="proposed">
-                    📋 Proposed (Draft)
-                  </option>
                   <option value="enacted">
                     ✅ Enacted (Final)
                   </option>
@@ -148,24 +145,12 @@ function BudgetUpload() {
             </div>
 
             {/* Budget type hint */}
-            <div className={`mb-4 rounded-lg border p-3 text-xs ${
-              budgetType === "proposed"
-                ? "border-amber-200 bg-amber-50 text-amber-800"
-                : "border-emerald-200 bg-emerald-50 text-emerald-800"
-            }`}>
-              {budgetType === "proposed" ? (
-                <span>
-                  <strong>Proposed budget:</strong> This is the draft estimate
-                  published before public hearings. Citizen concerns will be
-                  matched against this to see what was initially planned.
-                </span>
-              ) : (
-                <span>
-                  <strong>Enacted budget:</strong> This is the final budget passed
-                  by the County Assembly. Citizen concerns will be matched against
-                  this to see what actually got funded.
-                </span>
-              )}
+            <div className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-800">
+              <span>
+                <strong>Enacted budget:</strong> This is the final budget passed
+                by the County Assembly. Citizen concerns will be matched against
+                this to see what actually got funded.
+              </span>
             </div>
 
             <label className="flex cursor-pointer flex-col items-center gap-2 rounded-lg border-2 border-dashed border-slate-200 bg-slate-50 p-8 hover:border-emerald-300 hover:bg-emerald-50/30 transition-colors">

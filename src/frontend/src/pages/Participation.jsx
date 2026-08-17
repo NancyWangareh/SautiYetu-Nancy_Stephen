@@ -8,9 +8,8 @@ import {
 import { API_BASE } from "../config"; 
 
 const STATUS_CONFIG = {
-  matched: { label: "Matched / Funded", className: "bg-emerald-100 text-emerald-800 border-emerald-300" },
-  partial: { label: "Partially Funded", className: "bg-amber-100 text-amber-800 border-amber-300" },
-  ignored: { label: "Ignored / Not Funded", className: "bg-red-100 text-red-800 border-red-300" },
+  present: { label: "Present", className: "bg-emerald-100 text-emerald-800 border-emerald-300" },
+  absent: { label: "Absent", className: "bg-red-100 text-red-800 border-red-300" },
 };
 
 function Participation() {
@@ -112,7 +111,7 @@ function Participation() {
       const data = await res.json();
       setResults(data);
       showToast(
-        `Matched ${data.summary.total} points: ${data.summary.matched} funded, ${data.summary.partial} partial, ${data.summary.ignored} not funded.`
+        `Matched ${data.summary.total} points: ${data.summary.present} present, ${data.summary.absent} absent.`
       );
     } catch (err) {
       showToast(err.message, true);
@@ -246,15 +245,14 @@ function Participation() {
           <div className="mb-4 flex items-center gap-3">
             <h2 className="text-lg font-bold text-slate-800">Budget Match Results</h2>
             <div className="flex items-center gap-2 text-xs">
-              <span className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-0.5 text-emerald-700">{results.summary.matched} Funded</span>
-              <span className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2.5 py-0.5 text-amber-700">{results.summary.partial} Partial</span>
-              <span className="inline-flex items-center rounded-full border border-red-200 bg-red-50 px-2.5 py-0.5 text-red-700">{results.summary.ignored} Not Funded</span>
+              <span className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-0.5 text-emerald-700">{results.summary.present} Present</span>
+              <span className="inline-flex items-center rounded-full border border-red-200 bg-red-50 px-2.5 py-0.5 text-red-700">{results.summary.absent} Absent</span>
             </div>
           </div>
 
           <div className="space-y-4">
             {results.results.map((r) => {
-              const cfg = STATUS_CONFIG[r.status] || STATUS_CONFIG.ignored;
+              const cfg = STATUS_CONFIG[r.status] || STATUS_CONFIG.absent;
               return <MatchResultCard key={r.point_id} result={r} statusCfg={cfg} />;
             })}
           </div>

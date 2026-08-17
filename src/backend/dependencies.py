@@ -1,5 +1,6 @@
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
+from .config import settings
 from .db.database import get_db
 from .services.embedder import EmbeddingService
 from .services.vector_store import VectorStore
@@ -15,7 +16,7 @@ _matcher: MatcherService | None = None
 def get_embedder() -> EmbeddingService:
     global _embedder
     if _embedder is None:
-        _embedder = EmbeddingService()
+        _embedder = EmbeddingService(settings.EMBEDDING_MODEL)
     return _embedder
 
 

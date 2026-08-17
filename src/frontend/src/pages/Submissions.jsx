@@ -1,19 +1,14 @@
-import { useSubmissions } from "../data/store";
-import { Megaphone, CheckCircle2, AlertTriangle, XCircle } from "lucide-react";
+import { useSubmissions, deleteSubmission } from "../data/store";
+import { Megaphone, CheckCircle2, XCircle, Trash2 } from "lucide-react";
 
 const STATUS_CONFIG = {
-  matched: {
-    label: "Funded",
+  present: {
+    label: "Present",
     icon: CheckCircle2,
     className: "bg-emerald-100 text-emerald-800 border-emerald-300",
   },
-  partial: {
-    label: "Partial",
-    icon: AlertTriangle,
-    className: "bg-amber-100 text-amber-800 border-amber-300",
-  },
-  ignored: {
-    label: "Not Funded",
+  absent: {
+    label: "Absent",
     icon: XCircle,
     className: "bg-red-100 text-red-800 border-red-300",
   },
@@ -21,6 +16,15 @@ const STATUS_CONFIG = {
 
 function Submissions() {
   const submissions = useSubmissions();
+
+  async function handleDelete(id) {
+    if (!window.confirm("Delete this submission?")) return;
+    try {
+      await deleteSubmission(id);
+    } catch {
+      // ignore — row stays if delete fails
+    }
+  }
 
   return (
     <div className="mx-auto max-w-6xl space-y-6 px-4 py-8 sm:px-6">
@@ -52,12 +56,13 @@ function Submissions() {
                   <th className="px-4 py-3 font-semibold text-slate-600">Sector</th>
                   <th className="px-4 py-3 font-semibold text-slate-600">Budget Result</th>
                   <th className="px-4 py-3 font-semibold text-slate-600">Status</th>
+                  <th className="px-4 py-3 font-semibold text-slate-600"></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {submissions.map((s) => {
-                  const status = s.match?.status || "ignored";
-                  const statusCfg = STATUS_CONFIG[status] || STATUS_CONFIG.ignored;
+                  const status = s.match?.status || "absent";
+                  const statusCfg = STATUS_CONFIG[status] || STATUS_CONFIG.absent;
                   const StatusIcon = statusCfg.icon;
                   return (
                     <tr key={s.id} className="transition-colors hover:bg-slate-50">
@@ -89,6 +94,15 @@ function Submissions() {
                           <StatusIcon className="h-3 w-3" />
                           {statusCfg.label}
                         </span>
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <button
+                          onClick={() => handleDelete(s.id)}
+                          className="rounded-md p-1.5 text-slate-400 transition-colors hover:bg-red-50 hover:text-red-600"
+                          title="Delete submission"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
                       </td>
                     </tr>
                   );

@@ -21,7 +21,7 @@ router = APIRouter(prefix="/api/matches", tags=["matches"])
 async def list_matches(
     ward: str | None = Query(None),
     sector: str | None = Query(None),
-    status: str | None = Query(None, description="matched | partial | ignored"),
+    status: str | None = Query(None, description="present | absent"),
     min_confidence: float | None = Query(None, ge=0.0, le=1.0),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
@@ -61,7 +61,7 @@ async def list_matches(
                 sub_sector=s.sub_sector,
                 classification_confidence=s.classification_confidence,
                 budget_result=s.match.budget_result if s.match else "Pending match...",
-                status=s.match.status if s.match else MatchStatus.ignored,
+                status=s.match.status if s.match else MatchStatus.absent,
                 similarity_score=s.match.similarity_score if s.match else None,
                 simplified=s.match.simplified if s.match else None,
                 key_points=s.match.key_points if s.match else None,
@@ -92,8 +92,8 @@ async def get_match_stats(
 
     if total_submissions == 0:
         return MatchStatsResponse(
-            total_submissions=0, matched_count=0, partial_count=0,
-            ignored_count=0, match_rate=0.0, by_sector=[], by_ward=[],
+            total_submissions=0, present_count=0, absent_count=0,
+            match_rate=0.0, by_sector=[], by_ward=[],
         )
 
     # Status breakdown
@@ -104,9 +104,8 @@ async def get_match_stats(
     status_result = await db.execute(status_query)
     status_counts = {row[0].value: row[1] for row in status_result}
 
-    matched = status_counts.get("matched", 0)
-    partial = status_counts.get("partial", 0)
-    ignored = status_counts.get("ignored", 0)
+    present = status_counts.get("present", 0)
+    absent = status_counts.get("absent", 0)
 
     # By sector
     sector_query = select(Submission.sector, func.count()).where(Submission.sector.isnot(None))
@@ -123,10 +122,9 @@ async def get_match_stats(
 
     return MatchStatsResponse(
         total_submissions=total_submissions,
-        matched_count=matched,
-        partial_count=partial,
-        ignored_count=ignored,
-        match_rate=round((matched + partial) / total_submissions * 100, 1),
+        present_count=present,
+        absent_count=absent,
+        match_rate=round(present / total_submissions * 100, 1),
         by_sector=by_sector,
         by_ward=by_ward,
     )

@@ -32,9 +32,8 @@ class MatchListResponse(BaseModel):
 
 class MatchStatsResponse(BaseModel):
     total_submissions: int
-    matched_count: int
-    partial_count: int
-    ignored_count: int
+    present_count: int
+    absent_count: int
     match_rate: float
     by_sector: list[dict]
     by_ward: list[dict]

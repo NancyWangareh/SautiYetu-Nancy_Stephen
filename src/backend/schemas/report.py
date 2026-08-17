@@ -12,9 +12,8 @@ class ReportFilters(BaseModel):
 
 class ReportSummary(BaseModel):
     total: int
-    matched: int
-    partial: int
-    ignored: int
+    present: int
+    absent: int
     match_rate: float
 
 

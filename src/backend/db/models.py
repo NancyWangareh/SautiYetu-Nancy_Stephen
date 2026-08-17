@@ -7,9 +7,8 @@ from .database import Base
 
 
 class MatchStatus(str, enum.Enum):
-    matched = "matched"
-    partial = "partial"
-    ignored = "ignored"
+    present = "present"
+    absent = "absent"
 
 
 class Channel(str, enum.Enum):
@@ -75,7 +74,7 @@ class BudgetMatch(Base):
 
     budget_result: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-    status: Mapped[MatchStatus] = mapped_column(SAEnum(MatchStatus), default=MatchStatus.ignored)
+    status: Mapped[MatchStatus] = mapped_column(SAEnum(MatchStatus), default=MatchStatus.absent)
     similarity_score: Mapped[float] = mapped_column(Float, default=0.0)
     matched_document_id: Mapped[str | None] = mapped_column(String(20), nullable=True)
 

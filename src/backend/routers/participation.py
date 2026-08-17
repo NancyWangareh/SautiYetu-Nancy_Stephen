@@ -10,10 +10,10 @@ from pathlib import Path
 
 from fastapi import APIRouter, UploadFile, File, HTTPException, Depends, Form
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, desc, case
+from sqlalchemy import select
 
 from ..db.database import get_db
-from ..db.models import Submission, BudgetMatch, MatchStatus, Channel, ParticipationSession, BudgetLineItem, BudgetDocument, DocumentStatus
+from ..db.models import Submission, BudgetMatch, MatchStatus, Channel, ParticipationSession
 from ..schemas.participation import (
     ParticipationCheckRequest, ParticipationCheckResponse,
     MatchPointsRequest, MatchPointsResult,
@@ -116,20 +116,11 @@ async def match_selected_points(
     points_map = {p["point_id"]: p for p in points_data}
 
     results = []
-    summary = {"total": 0, "matched": 0, "partial": 0, "ignored": 0}
+    summary = {"total": 0, "present": 0, "absent": 0}
 
-    # Find the budget collection ONCE (proposed vs enacted handled by caller's budget_type)
-    budget_doc = await db.execute(
-        select(BudgetDocument)
-        .where(BudgetDocument.status == DocumentStatus.ready)
-        .order_by(
-            case((BudgetDocument.budget_type == "enacted", 0), else_=1),
-            desc(BudgetDocument.uploaded_at),
-        )
-        .limit(1)
-    )
-    doc = budget_doc.scalar_one_or_none()
-    collection = f"budget_{doc.budget_type}" if doc and doc.budget_type else "budget_proposed"
+    collection = "budget_enacted"
+    if not matcher.store.collection_exists(collection):
+        raise HTTPException(400, "No enacted budget available. Upload the enacted budget PDF first.")
     
     for pid in payload.point_ids:
         point = points_map.get(pid, {})
@@ -146,12 +137,12 @@ async def match_selected_points(
             citizen_text=text,
             sector=classification["sector"],
             sub_sector=classification["sub_sector"],
-            ward=location,          # ← was payload.ward
+            ward=location,
             collection=collection,
         )
 
         submission = Submission(
-            ward=location or "Unknown",   # ← was payload.ward
+            ward=location or "Unknown",
             channel=Channel.baraza,
             citizen_input=text[:5000],
             sector=classification["sector"],

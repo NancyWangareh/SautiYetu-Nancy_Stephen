@@ -43,18 +43,17 @@ async def generate_report(
     submissions = result.scalars().all()
 
     def st(s):
-        return s.match.status.value if s.match else "ignored"
+        return s.match.status.value if s.match else "absent"
 
-    matched = sum(1 for s in submissions if st(s) == "matched")
-    partial = sum(1 for s in submissions if st(s) == "partial")
-    ignored = sum(1 for s in submissions if st(s) == "ignored")
+    present = sum(1 for s in submissions if st(s) == "present")
+    absent = sum(1 for s in submissions if st(s) == "absent")
     total = len(submissions)
 
     # By sector (with status breakdown)
     by_sector_map = {}
     for s in submissions:
         k = s.sector or "Unknown"
-        d = by_sector_map.setdefault(k, {"count": 0, "matched": 0, "partial": 0, "ignored": 0})
+        d = by_sector_map.setdefault(k, {"count": 0, "present": 0, "absent": 0})
         d["count"] += 1
         d[st(s)] += 1
     by_sector = sorted(
@@ -66,7 +65,7 @@ async def generate_report(
     by_ward_map = {}
     for s in submissions:
         k = s.ward or "Unknown"
-        d = by_ward_map.setdefault(k, {"count": 0, "matched": 0, "partial": 0, "ignored": 0})
+        d = by_ward_map.setdefault(k, {"count": 0, "present": 0, "absent": 0})
         d["count"] += 1
         d[st(s)] += 1
     by_ward = sorted(
@@ -90,7 +89,7 @@ async def generate_report(
         text = (s.citizen_input or "").strip()[:120]
         if not text:
             continue
-        d = request_map.setdefault(text, {"count": 0, "status": "ignored"})
+        d = request_map.setdefault(text, {"count": 0, "status": "absent"})
         d["count"] += 1
         d["status"] = st(s)
     top_requests = sorted(
@@ -128,16 +127,16 @@ async def generate_report(
             "available": {"wards": all_wards, "sectors": all_sectors},
         },
         "summary": {
-            "total": total, "matched": matched, "partial": partial, "ignored": ignored,
-            "matchRate": round((matched + partial) / total * 100, 1) if total else 0.0,
+            "total": total, "present": present, "absent": absent,
+            "matchRate": round(present / total * 100, 1) if total else 0.0,
         },
         "bySector": by_sector,
         "byWard": by_ward,
         "byChannel": by_channel,
         "topRequests": top_requests,
         "fundingGap": {
-            "pctAddressed": round((matched + partial) / total * 100, 1) if total else 0.0,
-            "pctUnaddressed": round(ignored / total * 100, 1) if total else 0.0,
+            "pctAddressed": round(present / total * 100, 1) if total else 0.0,
+            "pctUnaddressed": round(absent / total * 100, 1) if total else 0.0,
         },
         "submissions": submissions_data,
     }

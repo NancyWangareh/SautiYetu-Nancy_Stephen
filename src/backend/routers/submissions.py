@@ -140,6 +140,22 @@ async def get_submission(submission_id: str, db: AsyncSession = Depends(get_db))
     return _to_response(submission)
 
 
+@router.delete("/{submission_id}")
+async def delete_submission(submission_id: str, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(
+        select(Submission)
+        .options(selectinload(Submission.match), selectinload(Submission.participation_matches))
+        .where(Submission.id == submission_id)
+    )
+    submission = result.scalar_one_or_none()
+    if not submission:
+        raise HTTPException(404, "Submission not found")
+
+    await db.delete(submission)
+    await db.commit()
+    return {"message": f"Submission {submission_id} deleted", "id": submission_id}
+
+
 def _to_response(submission: Submission, participation_detail: dict | None = None) -> dict:
     m = submission.match
     pm = submission.participation_matches

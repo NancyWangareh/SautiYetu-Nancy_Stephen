@@ -169,6 +169,41 @@ class VectorStore:
             for hit in results.points
         ]
 
+    def scroll_all(
+        self,
+        collection: str = BUDGET_COLLECTION,
+        limit: int = 10000,
+    ) -> list[dict]:
+        """Scroll all points (payload only) from a collection."""
+        points = []
+        offset = None
+        while True:
+            pts, nxt = self.client.scroll(
+                collection_name=collection,
+                with_payload=True,
+                with_vectors=False,
+                limit=limit,
+                offset=offset,
+            )
+            for p in pts:
+                pl = p.payload or {}
+                points.append({
+                    "chunk_id": pl.get("chunk_id", ""),
+                    "text": pl.get("text", ""),
+                    "location": pl.get("location", ""),
+                    "ward": pl.get("ward", ""),
+                    "subcounty": pl.get("subcounty", ""),
+                    "sector": pl.get("sector", ""),
+                    "sub_sector": pl.get("sub_sector", ""),
+                    "amount_ksh": pl.get("amount_ksh"),
+                    "page_number": pl.get("page_number", 0),
+                    "document_id": pl.get("document_id", ""),
+                })
+            if nxt is None:
+                break
+            offset = nxt
+        return points
+
     # ── Convenience ────────────────────────────────────────────────
 
     def budget_collection_exists(self) -> bool:

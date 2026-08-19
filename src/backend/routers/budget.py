@@ -53,32 +53,38 @@ def _ingest_background(job_id, document_id, pdf_path, embedder, store, loop, bud
         pages = parse_pdf(pdf_path)
         _jobs[job_id]["stats"]["total_pages"] = len(pages)
 
-        _jobs[job_id]["status"] = "chunking"
+        _jobs[job_id]["status"] = "extracting"
         _jobs[job_id]["progress"] = 0.3
-        chunks = chunk_documents(pages)
-        if not chunks:
-            raise ValueError("No text extracted from PDF")
-        _jobs[job_id]["stats"]["chunks_created"] = len(chunks)
-
-        _jobs[job_id]["status"] = "embedding"
-        _jobs[job_id]["progress"] = 0.5
-        texts = [c["text"] for c in chunks]
-        embeddings = embedder.embed_texts(texts, show_progress=True)
-        _jobs[job_id]["stats"]["vector_dim"] = embedder.vector_size
-
-        _jobs[job_id]["status"] = "indexing"
-        _jobs[job_id]["progress"] = 0.8
-
         line_items = extract_line_items(pages, document_id, budget_type, fiscal_year)
+
         count = 0
         if len(line_items) >= MIN_LINE_ITEMS:
+            # Structured path: classify + embed + store line items.
+            # Block until indexing completes so failures surface and the
+            # document is never marked ready while the index is empty.
+            _jobs[job_id]["status"] = "indexing"
+            _jobs[job_id]["progress"] = 0.5
             count = len(line_items)
-            asyncio.run_coroutine_threadsafe(
+            future = asyncio.run_coroutine_threadsafe(
                 _index_line_items(document_id, pages, budget_type, fiscal_year, embedder, store),
                 loop,
             )
+            future.result(timeout=1800)
         else:
             # Fallback: raw text chunks (legacy behavior)
+            _jobs[job_id]["status"] = "chunking"
+            _jobs[job_id]["progress"] = 0.4
+            chunks = chunk_documents(pages)
+            if not chunks:
+                raise ValueError("No text extracted from PDF")
+            _jobs[job_id]["stats"]["chunks_created"] = len(chunks)
+
+            _jobs[job_id]["status"] = "embedding"
+            _jobs[job_id]["progress"] = 0.6
+            texts = [c["text"] for c in chunks]
+            embeddings = embedder.embed_texts(texts, show_progress=True)
+            _jobs[job_id]["stats"]["vector_dim"] = embedder.vector_size
+
             collection = "budget_enacted" if budget_type == "enacted" else "budget_proposed"
             if not store.collection_exists(collection):
                 store.create_collection(embedder.vector_size, force=False, name=collection)
@@ -87,7 +93,7 @@ def _ingest_background(job_id, document_id, pdf_path, embedder, store, loop, bud
 
         _jobs[job_id]["progress"] = 1.0
 
-        # Mark document as ready in DB
+        # Mark document as ready in DB (only reached once indexing succeeded)
         async def _mark_ready():
             from ..db.database import async_session
             from datetime import datetime as _dt
@@ -106,7 +112,7 @@ def _ingest_background(job_id, document_id, pdf_path, embedder, store, loop, bud
                     _jobs[job_id]["status"] = "complete"
                     _jobs[job_id]["progress"] = 1.0
 
-        asyncio.run_coroutine_threadsafe(_mark_ready(), loop)
+        asyncio.run_coroutine_threadsafe(_mark_ready(), loop).result(timeout=120)
         logger.info("Job %s complete: %d vectors stored", job_id, count)
 
     except Exception as e:
@@ -127,7 +133,7 @@ def _ingest_background(job_id, document_id, pdf_path, embedder, store, loop, bud
                     await session.commit()
 
         try:
-            asyncio.run_coroutine_threadsafe(_mark_failed(), loop)
+            asyncio.run_coroutine_threadsafe(_mark_failed(), loop).result(timeout=120)
         except Exception:
             pass
         
@@ -394,6 +400,7 @@ async def _index_line_items(document_id, pages, budget_type, fiscal_year, embedd
                 project_name=it.get("project_name"),
                 description=it.get("description"),
                 location=it.get("location"),
+                delivery_unit=it.get("delivery_unit"),
                 approved_amount=it.get("approved_amount"),
                 revised_i_amount=it.get("revised_i_amount"),
                 revised_ii_amount=it.get("revised_ii_amount"),

@@ -59,6 +59,14 @@ function BudgetUpload() {
     const interval = setInterval(async () => {
       try {
         const res = await fetch(`${API_BASE}/api/budget/status/${id}`);
+        if (!res.ok) {
+          // Job no longer exists (e.g. server restarted) — stop polling.
+          const err = await res.json().catch(() => ({}));
+          setStatus({ status: "failed", error: err.detail || `Status check failed (${res.status})` });
+          clearInterval(interval);
+          setPolling(false);
+          return;
+        }
         const data = await res.json();
         setStatus(data);
 
@@ -67,9 +75,9 @@ function BudgetUpload() {
           setPolling(false);
         }
       } catch {
-        // keep polling
+        // transient network error — keep polling
       }
-    }, 1500);
+    }, 3000);
   }
 
   function getCurrentStageIndex() {
@@ -105,9 +113,9 @@ function BudgetUpload() {
                 <h2 className="text-base font-semibold text-slate-800">
                   Budget Document Ingestion
                 </h2>
-                <p className="text-xs text-slate-500">
+                {/* <p className="text-xs text-slate-500">
                   Parse → chunk → embed → semantic search index
-                </p>
+                </p> */}
               </div>
             </div>
 
@@ -145,13 +153,7 @@ function BudgetUpload() {
             </div>
 
             {/* Budget type hint */}
-            <div className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-800">
-              <span>
-                <strong>Enacted budget:</strong> This is the final budget passed
-                by the County Assembly. Citizen concerns will be matched against
-                this to see what actually got funded.
-              </span>
-            </div>
+            {/*  */}
 
             <label className="flex cursor-pointer flex-col items-center gap-2 rounded-lg border-2 border-dashed border-slate-200 bg-slate-50 p-8 hover:border-emerald-300 hover:bg-emerald-50/30 transition-colors">
               <FileUp className="h-8 w-8 text-slate-400" />

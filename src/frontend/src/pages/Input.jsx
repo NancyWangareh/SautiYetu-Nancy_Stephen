@@ -1,9 +1,7 @@
 import { useState, useEffect, useRef } from "react";
-import { Loader2, Send, MessageSquarePlus, Sparkles, CheckCircle2, Paperclip, AlertCircle, MapPin, Radio, Users, Megaphone } from "lucide-react";
+import { Loader2, Send, MessageSquarePlus, Sparkles, CheckCircle2, Paperclip, AlertCircle, MapPin, Users, Megaphone } from "lucide-react";
 import { classifyInput, checkParticipation } from "../data/classify";
 import { submitToBackend, useWards } from "../data/store";
-
-const CHANNELS = ["Web Form", "SMS", "USSD", "Baraza"];
 
 function Input({ onNavigate }) {
   const [input, setInput] = useState("");
@@ -14,7 +12,6 @@ function Input({ onNavigate }) {
   const [participationMatch, setParticipationMatch] = useState(null);
   const [error, setError] = useState("");
   const [ward, setWard] = useState("Umoja I");
-  const [channel, setChannel] = useState("Web Form");
   const debounceRef = useRef(null);
   const wards = useWards();
 
@@ -62,7 +59,7 @@ function Input({ onNavigate }) {
     setError("");
 
     try {
-      await submitToBackend(input.trim(), ward, channel);
+      await submitToBackend(input.trim(), ward);
       setInput("");
       setPreview(null);
       setParticipationMatch(null);
@@ -129,8 +126,8 @@ function Input({ onNavigate }) {
           className="w-full rounded-lg border border-slate-200 bg-white p-3 text-sm text-slate-800 placeholder-slate-400 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-200 disabled:opacity-50 resize-none"
         />
 
-        {/* ── Ward & Channel Selectors ── */}
-        <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+        {/* ── Ward Selector ── */}
+        <div className="mt-3">
           {/* Ward Dropdown */}
           <div>
             <label className="mb-1 flex items-center gap-1 text-xs font-medium text-slate-500">
@@ -152,24 +149,6 @@ function Input({ onNavigate }) {
                   </option>
                 ))
               )}
-            </select>
-          </div>
-
-          {/* Channel Selector */}
-          <div>
-            <label className="mb-1 flex items-center gap-1 text-xs font-medium text-slate-500">
-              <Radio className="h-3 w-3" />
-              Channel
-            </label>
-            <select
-              value={channel}
-              onChange={(e) => setChannel(e.target.value)}
-              disabled={processing}
-              className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-200 disabled:opacity-50"
-            >
-              {CHANNELS.map((ch) => (
-                <option key={ch} value={ch}>{ch}</option>
-              ))}
             </select>
           </div>
         </div>

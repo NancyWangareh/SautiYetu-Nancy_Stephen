@@ -109,13 +109,11 @@ async def generate_report(
         {
             "id": s.id,
             "ward": s.ward,
-            "channel": s.channel.value if s.channel else "",
             "citizenInput": s.citizen_input[:200],
             "sector": s.sector,
             "subSector": s.sub_sector,
             "status": st(s),
             "budgetResult": s.match.budget_result[:200] if s.match and s.match.budget_result else "",
-            "submittedAt": s.submitted_at.isoformat() if s.submitted_at else "",
         }
         for s in submissions
     ]

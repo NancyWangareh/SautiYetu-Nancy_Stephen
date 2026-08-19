@@ -12,10 +12,13 @@ aiosqlite
 alembic
 
 # Vector store
-qdrant-client
+qdrant-client==1.18.0
 
-# Embeddings
-sentence-transformers
+# Embeddings (pinned to known-good versions)
+sentence-transformers==5.6.1
+transformers==5.14.1
+# torch is installed separately with the CPU-only index:
+#   pip install torch==2.13.0 --index-url https://download.pytorch.org/whl/cpu
 
 # PDF parsing
 pdfplumber
@@ -25,4 +28,4 @@ pytesseract
 pillow
 
 # LLM
-openai
+openai==2.47.0

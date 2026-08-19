@@ -4,7 +4,7 @@ Assumes **Ubuntu 22.04 / 24.04**, **Nginx**, and a **single domain** serving bot
 frontend and the API (`/api`). Replace the placeholders below.
 
 Requirements: **Python 3.10+**, **~10 GB free disk** (the embedding model downloads
-on first startup). Your VPS specs (6 vCPU, 4 GB RAM, 35 GB SSD) are **more than sufficient**.
+on first startup). 4 GB RAM is sufficient.
 
 ---
 
@@ -15,9 +15,24 @@ ssh root@<VPS_IP>
 
 apt update && apt upgrade -y
 apt install -y python3 python3-venv python3-pip nginx git build-essential tesseract-ocr
+
+# Node.js 22 (required to build the frontend — Vite 8 needs Node 20.19+/22)
+curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
+apt install -y nodejs
+node -v
 ```
 
 `tesseract-ocr` is required for OCR of scanned participation PDFs.
+
+## 1b. Add swap (optional — cheap insurance against memory spikes)
+
+```bash
+fallocate -l 2G /swapfile
+chmod 600 /swapfile
+mkswap /swapfile
+swapon /swapfile
+echo '/swapfile none swap sw 0 0' | tee -a /etc/fstab
+```
 
 ## 2. Create a deploy user and project directory
 
@@ -64,6 +79,9 @@ npm run build        # reads src/frontend/.env.production (empty VITE_API_URL �
 mkdir -p /var/www/sautiyetu
 cp -r dist/* /var/www/sautiyetu/
 ```
+
+> Alternative: build locally (`npm run build`) and copy the `dist/` folder up with
+> `scp -r dist deploy@<VPS_IP>:/var/www/sautiyetu/` — no Node needed on the VPS.
 
 ## 6. Nginx
 

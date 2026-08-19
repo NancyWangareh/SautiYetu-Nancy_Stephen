@@ -2,6 +2,7 @@
 
 import json
 import logging
+import re
 from .embedder import EmbeddingService
 from .vector_store import VectorStore
 from .simplifier import simplify_with_llm, simplify_budget_line
@@ -15,6 +16,43 @@ logger = logging.getLogger(__name__)
 
 MATCH_THRESHOLD = 0.70
 VERIFY_HIGH = 0.92
+
+# Words too generic to be useful as a distinctive name match.
+_GENERIC = {
+    "road", "roads", "street", "streets", "ward", "wards", "construction",
+    "installation", "rehabilitation", "repair", "repairs", "upgrade", "upgrading",
+    "completion", "renovation", "extension", "procurement", "market", "markets",
+    "hospital", "hospitals", "school", "schools", "primary", "secondary", "centre",
+    "center", "centres", "health", "social", "hall", "halls", "drainage", "drain",
+    "drainages", "water", "sewer", "sewers", "lighting", "lights", "light",
+    "masts", "borehole", "boreholes", "toilet", "toilets", "kiosk", "kiosks",
+    "office", "offices", "county", "nairobi", "level", "phase", "project",
+    "projects", "fund", "funds", "allocation", "allocated", "financial", "year",
+    "years", "budget", "estimates", "public", "members", "community", "estate",
+    "village", "area", "areas", "sub", "council", "assembly", "committee",
+    "report", "department", "government", "national", "local", "development",
+    "program", "programme", "the", "and", "of", "in", "to", "for", "at", "with",
+    "from", "by", "on", "a", "an", "is", "are", "was", "were", "be", "been",
+    "not", "that", "which", "have", "has", "had", "their", "this", "these",
+    "those", "same", "all", "every", "new", "existing", "additional", "various",
+    "selected", "proposed", "enough", "more", "less", "also", "only", "when",
+    "where", "what", "who", "whose", "how", "why", "over", "under", "about",
+    "above", "below", "after", "before", "between", "through", "within",
+}
+
+
+def _proper_nouns(text: str) -> list[str]:
+    """Extract probable place/facility names: Title-Case words that aren't generic."""
+    nouns = []
+    for w in re.findall(r"[A-Za-z][A-Za-z'\-]*", text):
+        if (
+            len(w) >= 3
+            and w[0].isupper()
+            and not w.isupper()
+            and w.lower() not in _GENERIC
+        ):
+            nouns.append(w.lower())
+    return nouns
 
 
 class MatcherService:
@@ -70,6 +108,9 @@ class MatcherService:
             relaxed_location = True
 
         if not hits or hits[0]["score"] < MATCH_THRESHOLD:
+            lex = self._lexical_fallback(citizen_text, sector_key, collection)
+            if lex:
+                return self._lexical_match_result(lex, sector)
             return self._no_match(reason="No relevant budget provision found.")
 
         best = hits[0]
@@ -79,6 +120,9 @@ class MatcherService:
         if relaxed_location or MATCH_THRESHOLD <= base_score < VERIFY_HIGH:
             verdict = await self._verify_match(citizen_text, ward, best.get("text", ""))
             if not verdict["relevant"]:
+                lex = self._lexical_fallback(citizen_text, sector_key, collection)
+                if lex:
+                    return self._lexical_match_result(lex, sector)
                 return self._no_match(reason=verdict.get("reason", "Relevance check failed."))
 
         boosted_score = min(0.99, base_score + participation_boost)
@@ -171,7 +215,62 @@ class MatcherService:
             "category": "",
             "alternative_matches": "[]",
         }
-        
+
+    def _lexical_fallback(
+        self, citizen_text: str, sector: str | None, collection: str
+    ) -> dict | None:
+        """Find the budget line sharing the most distinctive names with the concern
+        (same sector). Catches exact-name matches the embedding missed."""
+        nouns = list(dict.fromkeys(_proper_nouns(citizen_text)))
+        if not nouns:
+            return None
+
+        try:
+            chunks = self.store.scroll_all(collection)
+        except Exception as e:
+            logger.warning("Lexical fallback scroll failed: %s", e)
+            return None
+
+        best = None
+        best_score = 0
+        for chunk in chunks:
+            csector = chunk.get("sector")
+            if sector and csector and csector != "Uncategorized" and sector != csector:
+                continue
+            text = (chunk.get("text") or "").lower()
+            loc = (chunk.get("location") or "").lower()
+            score = sum(1 for noun in nouns if noun in text or noun in loc)
+            if score > best_score:
+                best_score = score
+                best = chunk
+        return best if best_score >= 1 else None
+
+    def _lexical_match_result(self, chunk: dict, sector: str) -> dict:
+        budget_text = (chunk.get("text") or "").strip()
+        excerpt = budget_text[:300]
+        page = chunk.get("page_number", "?")
+        simplified = (
+            simplify_with_llm(budget_text)
+            if settings.DEEPSEEK_API_KEY
+            else simplify_budget_line(budget_text)
+        )
+        return {
+            "matched_line_id": chunk.get("chunk_id", ""),
+            "matched_sector": sector,
+            "matched_description": budget_text[:500],
+            "matched_amount_ksh": chunk.get("amount_ksh"),
+            "matched_location": chunk.get("location") or chunk.get("ward") or "",
+            "source_page": page,
+            "budget_result": f"[Found · p.{page} · name match] {excerpt}",
+            "status": "present",
+            "similarity_score": 0.99,
+            "boosted_score": 0.99,
+            "simplified": simplified.get("simplified", ""),
+            "key_points": simplified.get("key_points", []),
+            "category": simplified.get("category", ""),
+            "alternative_matches": "[]",
+        }
+
     async def match_batch(
         self,
         texts: list[str],

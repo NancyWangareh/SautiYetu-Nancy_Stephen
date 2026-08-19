@@ -151,45 +151,62 @@ Return ONLY: [{{"sector":"...", "sub_sector":"...", "confidence":0.0-1.0}}, ...]
             raise RuntimeError(f"Batch classification failed: {str(e)[:200]}")
         
     async def classify_budget_lines(self, lines: list[str]) -> list[dict]:
-        """Batch-classify budget line items (one LLM call for the whole document)."""
+        """Batch-classify budget line items in small chunks for reliable ordering."""
         if not self.client:
             raise RuntimeError("DEEPSEEK_API_KEY not configured.")
 
         import asyncio
 
-        numbered = "\n".join(
-            f"{i+1}. {t.strip()[:200]}" for i, t in enumerate(lines) if t.strip()
-        )
-        prompt = f"{BUDGET_LINE_PROMPT}\n\n{numbered}"
+        BATCH_SIZE = 40
+        all_results: list[dict] = []
 
-        def _call() -> str:
-            resp = self.client.chat.completions.create(
-                model="deepseek-chat",
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.0,
-                max_tokens=4000,
+        for start in range(0, len(lines), BATCH_SIZE):
+            batch = lines[start:start + BATCH_SIZE]
+            numbered = "\n".join(
+                f"{i+1}. {t.strip()[:200]}" for i, t in enumerate(batch) if t.strip()
             )
-            return resp.choices[0].message.content.strip()
+            prompt = f"{BUDGET_LINE_PROMPT}\n\n{numbered}"
 
-        content = await asyncio.to_thread(_call)
+            def _call(p: str = prompt, retries: int = 2) -> str:
+                last_exc = None
+                for attempt in range(retries + 1):
+                    try:
+                        resp = self.client.chat.completions.create(
+                            model="deepseek-chat",
+                            messages=[{"role": "user", "content": p}],
+                            temperature=0.0,
+                            max_tokens=4000,
+                        )
+                        return resp.choices[0].message.content.strip()
+                    except Exception as e:
+                        last_exc = e
+                        if attempt < retries:
+                            import time
+                            time.sleep(2 * (attempt + 1))
+                raise last_exc
 
-        if content.startswith("```"):
-            content = content.strip("`").strip()
+            content = await asyncio.to_thread(_call)
 
-        try:
-            results = json.loads(content)
-        except json.JSONDecodeError:
-            results = []
-            for m in re.finditer(r"\{[^{}]*\}", content):
-                try:
-                    results.append(json.loads(m.group()))
-                except json.JSONDecodeError:
-                    pass
+            if content.startswith("```"):
+                content = content.strip("`").strip()
 
-        if not isinstance(results, list):
-            results = []
+            try:
+                results = json.loads(content)
+            except json.JSONDecodeError:
+                results = []
+                for m in re.finditer(r"\{[^{}]*\}", content):
+                    try:
+                        results.append(json.loads(m.group()))
+                    except json.JSONDecodeError:
+                        pass
 
-        while len(results) < len(lines):
-            results.append({"sector": "Uncategorized", "sub_sector": "", "confidence": 0.0})
+            if not isinstance(results, list):
+                results = []
 
-        return results[:len(lines)]
+            while len(results) < len(batch):
+                results.append({"sector": "Uncategorized", "sub_sector": "", "confidence": 0.0})
+            results = results[:len(batch)]
+
+            all_results.extend(results)
+
+        return all_results

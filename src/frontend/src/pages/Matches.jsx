@@ -60,7 +60,6 @@ function MatchCard({ record }) {
           <span className="inline-flex items-center rounded-md border border-slate-200 bg-white px-2 py-0.5 text-xs text-slate-600">
             {record.ward}
           </span>
-          <span className="text-xs text-slate-400">{record.submitted_at}</span>
         </div>
         <span className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold ${statusCfg.className}`}>
           {statusCfg.label}
@@ -78,9 +77,6 @@ function MatchCard({ record }) {
           <div className="mb-2 flex flex-wrap items-center gap-2 text-xs font-medium uppercase tracking-wide text-slate-400">
             <MessageSquare className="h-3.5 w-3.5" />
             Citizen Input · Bottom-Up
-            <span className="inline-flex items-center rounded-md bg-slate-100 px-2 py-0.5 text-xs font-normal text-slate-500">
-              via {record.channel}
-            </span>
           </div>
           <p className="text-sm leading-relaxed text-slate-700">&ldquo;{record.citizen_input}&rdquo;</p>
           <div className="mt-3 flex flex-wrap items-center gap-1.5">
@@ -230,7 +226,7 @@ const handleSimplifyResult = async (idx, text) => {
             Search the Enacted Budget
           </h2>
           <span className="hidden text-xs text-slate-400 sm:inline">
-            AI-powered semantic search across the full Nairobi County budget
+            AI-powered semantic search across the full County budget
             document
           </span>
         </div>

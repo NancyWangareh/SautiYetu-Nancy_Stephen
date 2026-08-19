@@ -34,7 +34,7 @@ def parse_pdf(pdf_path: str | None) -> list[dict]:
         for i, page in enumerate(pdf.pages, start=1):
             text = page.extract_text() or ""
             # Also try to extract tables
-            tables = page.extract_tables()
+            tables = [t for t in page.extract_tables() if t]
             if tables:
                 for table in tables:
                     table_text = _table_to_text(table)
@@ -42,7 +42,12 @@ def parse_pdf(pdf_path: str | None) -> list[dict]:
                         text += "\n" + table_text
 
             if text.strip():
-                pages.append({"page_number": i, "text": text.strip()})
+                pages.append({
+                    "page_number": i,
+                    "text": text.strip(),
+                    # structured table rows for the line-item extractor
+                    "tables": tables,
+                })
 
     if not pages:
         raise ValueError(f"No text extracted from {pdf_path}")

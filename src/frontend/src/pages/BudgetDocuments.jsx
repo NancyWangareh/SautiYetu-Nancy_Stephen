@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   FileText,
   Trash2,
@@ -15,11 +15,12 @@ function BudgetDocuments() {
   const [documents, setDocuments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const intervalRef = useRef(null);
 
   useEffect(() => {
     fetchDocs();
-    const interval = setInterval(fetchDocs, 5000);
-    return () => clearInterval(interval);
+    intervalRef.current = setInterval(fetchDocs, 10000);
+    return () => clearInterval(intervalRef.current);
   }, []);
 
   async function fetchDocs() {
@@ -29,6 +30,10 @@ function BudgetDocuments() {
       const data = await res.json();
       setDocuments(data);
       setLoading(false);
+      // Stop auto-refresh once nothing is still ingesting
+      if (!data.some((d) => d.status === "uploading")) {
+        clearInterval(intervalRef.current);
+      }
     } catch (err) {
       setError(err.message);
       setLoading(false);
@@ -118,8 +123,7 @@ function BudgetDocuments() {
           Budget Documents
         </h1>
         <p className="mt-1 text-sm text-slate-500">
-          All uploaded county budget PDFs — proposed drafts and enacted finals.
-          Upload new documents from the Upload page.
+          All uploaded county budget PDFs.
         </p>
       </div>
 
@@ -156,11 +160,6 @@ function BudgetDocuments() {
                     <span>{doc.size_mb?.toFixed(1)} MB</span>
                     <span>FY {doc.fiscal_year}</span>
                   </div>
-                  <p className="text-xs text-slate-400 mt-1">
-                    Uploaded: {new Date(doc.uploaded_at).toLocaleDateString()}
-                    {doc.completed_at &&
-                      ` · Completed: ${new Date(doc.completed_at).toLocaleDateString()}`}
-                  </p>
                   {doc.error_message && (
                     <p className="text-xs text-red-500 mt-1 truncate">
                       {doc.error_message}

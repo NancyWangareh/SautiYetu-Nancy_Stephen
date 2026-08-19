@@ -2,14 +2,14 @@ import { useState } from "react";
 import { 
   ShieldCheck, 
   FileUp, 
-  FileText,
   Users,
   FolderOpen,
   BarChart3,
   Inbox,
   Search,
-  AlertCircle,
-  Loader2,
+  ChevronDown,
+  ChevronUp,
+  ExternalLink,
 } from "lucide-react";
 
 import Participation from "./pages/Participation";
@@ -18,9 +18,15 @@ import Matches from "./pages/Matches";
 import Reports from "./pages/Reports";
 import BudgetUpload from "./pages/BudgetUpload";
 import BudgetDocuments from "./pages/BudgetDocuments";
+import Landing from "./pages/Landing";
 
 function App() {
-  const [activeView, setActiveView] = useState('upload');
+  const [activeView, setActiveView] = useState('landing');
+  const [moreOpen, setMoreOpen] = useState(false);
+
+  if (activeView === 'landing') {
+    return <Landing onLaunch={() => setActiveView('upload')} />;
+  }
 
   const renderView = () => {
     switch (activeView) {
@@ -56,74 +62,43 @@ function App() {
             <h1 className="text-base font-semibold leading-none tracking-tight">
               SAUTI YETU
             </h1>
-            <p className="text-xs text-[#82A895] mt-1.5">Budget accountability</p>
+            {/* <p className="text-xs text-[#82A895] mt-1.5">Budget accountability</p> */}
           </div>
         </div>
 
         {/* Navigation */}
-        <div className="flex-1 overflow-y-auto px-3 py-4 space-y-4">
+        <div className="flex-1 overflow-y-auto px-3 py-4">
+          <p className="mb-2 px-3 text-[10px] font-semibold uppercase tracking-wider text-[#5A8A72]">
+            Your workflow
+          </p>
 
-          {/* STEP 1: Budget Data */}
-          <div>
-            <p className="mb-2 px-3 text-[10px] font-semibold uppercase tracking-wider text-[#5A8A72]">
-              Step 1 — Budget Data
-            </p>
-
+          <div className="space-y-1">
             <NavButton
+              step="1"
               active={activeView === 'upload'}
               onClick={() => setActiveView('upload')}
               icon={<FileUp size={18} />}
               label="Upload Budget PDF"
               sub="Enacted budget"
             />
-
             <NavButton
-              active={activeView === 'documents'}
-              onClick={() => setActiveView('documents')}
-              icon={<FolderOpen size={18} />}
-              label="Budget Documents"
-              sub="View all uploads"
-            />
-          </div>
-
-          {/* STEP 2: Citizen Voice */}
-          <div>
-            <p className="mb-2 px-3 text-[10px] font-semibold uppercase tracking-wider text-[#5A8A72]">
-              Step 2 — Citizen Voice
-            </p>
-
-            <NavButton
+              step="2"
               active={activeView === 'participation'}
               onClick={() => setActiveView('participation')}
               icon={<Users size={18} />}
-              label="Participation Data"
-              sub="Upload & auto-match"
+              label="Upload Participation Data"
+              sub="Extract & auto-match"
             />
-
-                        <NavButton
-              active={activeView === 'submissions'}
-              onClick={() => setActiveView('submissions')}
-              icon={<Inbox size={18} />}
-              label="Submissions"
-              sub="Extracted citizen points"
-            />
-          </div>
-
-          {/* STEP 3: Accountability */}
-          <div>
-            <p className="mb-2 px-3 text-[10px] font-semibold uppercase tracking-wider text-[#5A8A72]">
-              Step 3 — Accountability
-            </p>
-
             <NavButton
+              step="3"
               active={activeView === 'matches'}
               onClick={() => setActiveView('matches')}
               icon={<Search size={18} />}
-              label="Budget Search"
-              sub="Semantic search"
+              label="Matches"
+              sub="Present vs Absent"
             />
-
             <NavButton
+              step="4"
               active={activeView === 'reports'}
               onClick={() => setActiveView('reports')}
               icon={<BarChart3 size={18} />}
@@ -131,14 +106,48 @@ function App() {
               sub="Export & analysis"
             />
           </div>
-        </div>
 
-        {/* Footer */}
-        <div className="p-4 shrink-0 border-t border-[#13402A]">
-          <div className="text-[11px] text-[#82A895] leading-relaxed">
-            County: Nairobi · FY 2025/26
-            <br />
-            <span className="text-[#5A8A72]">Citizen budget accountability</span>
+          {/* Where to get the documents */}
+          <a
+            href="https://nairobiassembly.go.ke/papers-laid/"
+            target="_blank"
+            rel="noreferrer"
+            className="mt-4 flex items-start gap-2.5 rounded-lg border border-[#13402A] bg-[#0F3D28] px-3 py-3 text-xs text-[#9FD5B4] transition-colors hover:bg-[#13402A]"
+          >
+            <ExternalLink size={14} className="mt-0.5 shrink-0" />
+            <span>
+              Get the budget &amp; participation PDFs from the Nairobi County Assembly —{" "}
+              <span className="font-semibold text-white">Papers Laid</span>.
+            </span>
+          </a>
+
+          {/* More info (collapsible) */}
+          <div className="mt-4">
+            <button
+              onClick={() => setMoreOpen(!moreOpen)}
+              className="flex w-full items-center justify-between px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-[#5A8A72] transition-colors hover:text-[#9FD5B4]"
+            >
+              More info
+              {moreOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+            </button>
+            {moreOpen && (
+              <div className="mt-1 space-y-1">
+                <NavButton
+                  active={activeView === 'documents'}
+                  onClick={() => setActiveView('documents')}
+                  icon={<FolderOpen size={18} />}
+                  label="Budget Documents"
+                  sub="Manage uploads"
+                />
+                <NavButton
+                  active={activeView === 'submissions'}
+                  onClick={() => setActiveView('submissions')}
+                  icon={<Inbox size={18} />}
+                  label="Submissions"
+                  sub="Raw citizen points"
+                />
+              </div>
+            )}
           </div>
         </div>
       </aside>
@@ -148,14 +157,22 @@ function App() {
         
         {/* Top Header */}
         <header className="flex h-14 items-center gap-3 border-b border-gray-200 bg-white px-6 shrink-0">
+          <button
+            onClick={() => setActiveView('landing')}
+            className="text-xs font-medium text-gray-400 transition-colors hover:text-emerald-700"
+          >
+            ← Home
+          </button>
           <span className="text-sm font-medium text-gray-600">
-            Budget Accountability Dashboard — Nairobi County
+            Dashboard
           </span>
           <span className="ml-auto text-xs text-gray-400">
-            {activeView === 'upload' && "Upload Enacted Budget PDF"}
-            {activeView === 'documents' && "All Budget Documents"}
-            {activeView === 'participation' && "Public Participation Matching"}
-            {activeView === 'reports' && "CSO Reports & Analysis"}
+            {activeView === 'upload' && "Step 1 of 4 · Upload Enacted Budget PDF"}
+            {activeView === 'participation' && "Step 2 of 4 · Upload Participation Data"}
+            {activeView === 'matches' && "Step 3 of 4 · Matches"}
+            {activeView === 'reports' && "Step 4 of 4 · CSO Reports"}
+            {activeView === 'documents' && "Budget Documents"}
+            {activeView === 'submissions' && "Submissions"}
           </span>
         </header>
 
@@ -168,7 +185,7 @@ function App() {
 }
 
 /* ─── Reusable Nav Button ─── */
-function NavButton({ active, onClick, icon, label, sub = null, disabled = false }) {
+function NavButton({ active, onClick, icon, label, sub = null, disabled = false, step = null }) {
   return (
     <button
       onClick={onClick}
@@ -181,6 +198,15 @@ function NavButton({ active, onClick, icon, label, sub = null, disabled = false 
           : "text-[#E2E8F0] hover:bg-[#13402A]"
       }`}
     >
+      {step && (
+        <span
+          className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold ${
+            active ? "bg-[#14A562] text-white" : "bg-[#13402A] text-[#82A895]"
+          }`}
+        >
+          {step}
+        </span>
+      )}
       {icon}
       <div className="flex-1 text-left">
         <div>{label}</div>

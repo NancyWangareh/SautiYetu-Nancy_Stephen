@@ -10,10 +10,8 @@ import {
   TrendingUp,
   MapPin,
   Layers,
-  Radio,
   BarChart3,
   RefreshCw,
-  Printer,
 } from "lucide-react";
 
 import { API_BASE } from "../config"; 
@@ -37,8 +35,6 @@ function Reports() {
   const [wardFilter, setWardFilter] = useState("");
   const [sectorFilter, setSectorFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
 
   const fetchReport = useCallback(async () => {
     setLoading(true);
@@ -48,8 +44,6 @@ function Reports() {
     if (wardFilter) params.set("ward", wardFilter);
     if (sectorFilter) params.set("sector", sectorFilter);
     if (statusFilter) params.set("status", statusFilter);
-    if (dateFrom) params.set("dateFrom", dateFrom);
-    if (dateTo) params.set("dateTo", dateTo);
 
     try {
       const res = await fetch(`${API_BASE}/api/reports?${params.toString()}`);
@@ -65,7 +59,7 @@ function Reports() {
     } finally {
       setLoading(false);
     }
-  }, [wardFilter, sectorFilter, statusFilter, dateFrom, dateTo]);
+  }, [wardFilter, sectorFilter, statusFilter]);
 
   useEffect(() => {
     fetchReport();
@@ -76,8 +70,6 @@ function Reports() {
     if (wardFilter) params.set("ward", wardFilter);
     if (sectorFilter) params.set("sector", sectorFilter);
     if (statusFilter) params.set("status", statusFilter);
-    if (dateFrom) params.set("dateFrom", dateFrom);
-    if (dateTo) params.set("dateTo", dateTo);
     params.set("format", "csv");
 
     try {
@@ -95,17 +87,13 @@ function Reports() {
     }
   };
 
-  const handlePrint = () => window.print();
-
   const clearFilters = () => {
     setWardFilter("");
     setSectorFilter("");
     setStatusFilter("");
-    setDateFrom("");
-    setDateTo("");
   };
 
-  const hasFilters = wardFilter || sectorFilter || statusFilter || dateFrom || dateTo;
+  const hasFilters = wardFilter || sectorFilter || statusFilter;
 
   // ── Bar chart helper ──
   const BarRow = ({ label, value, max, color, subLabel }) => {
@@ -134,18 +122,11 @@ function Reports() {
             CSO Reports
           </h1>
           <p className="mt-1 text-sm text-slate-500">
-            Generate aggregated reports on citizen submissions, budget alignment,
-            and funding gaps for advocacy and accountability.
+            Aggregated citizen concerns vs. the enacted budget — filterable by sector
+            and ward, ready to export.
           </p>
         </div>
         <div className="flex gap-2">
-          <button
-            onClick={handlePrint}
-            className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
-          >
-            <Printer className="h-4 w-4" />
-            Print
-          </button>
           <button
             onClick={handleExportCSV}
             disabled={!report || report.summary.total === 0}
@@ -201,24 +182,6 @@ function Reports() {
               <option value="present">Present</option>
               <option value="absent">Absent</option>
             </select>
-          </div>
-          <div className="flex flex-col gap-1">
-            <label className="text-xs font-medium text-slate-500">From</label>
-            <input
-              type="date"
-              value={dateFrom}
-              onChange={(e) => setDateFrom(e.target.value)}
-              className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
-            />
-          </div>
-          <div className="flex flex-col gap-1">
-            <label className="text-xs font-medium text-slate-500">To</label>
-            <input
-              type="date"
-              value={dateTo}
-              onChange={(e) => setDateTo(e.target.value)}
-              className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
-            />
           </div>
           {hasFilters && (
             <button
@@ -364,33 +327,8 @@ function Reports() {
             </div>
           </div>
 
-          {/* By Channel + Top Requests */}
-          <div className="grid gap-6 lg:grid-cols-2">
-            {/* By Channel */}
-            <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-              <div className="flex items-center gap-2 mb-4">
-                <Radio className="h-4 w-4 text-slate-500" />
-                <h2 className="text-sm font-semibold text-slate-700">By Channel</h2>
-              </div>
-              {report.byChannel.length === 0 ? (
-                <p className="text-sm text-slate-400 py-4">No data.</p>
-              ) : (
-                <div className="space-y-2">
-                  {report.byChannel.map((ch) => (
-                    <BarRow
-                      key={ch.channel}
-                      label={ch.channel}
-                      value={ch.count}
-                      max={report.byChannel[0]?.count || 0}
-                      color="bg-purple-500"
-                    />
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* Top Requests */}
-            <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+          {/* Top Citizen Requests */}
+          <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
               <div className="flex items-center gap-2 mb-4">
                 <BarChart3 className="h-4 w-4 text-slate-500" />
                 <h2 className="text-sm font-semibold text-slate-700">Top Citizen Requests</h2>
@@ -413,7 +351,6 @@ function Reports() {
                   ))}
                 </div>
               )}
-            </div>
           </div>
 
           {/* Detailed Submissions Table */}
@@ -435,11 +372,9 @@ function Reports() {
                     <tr className="border-b border-slate-200 bg-slate-50">
                       <th className="px-4 py-3 font-semibold text-slate-600">ID</th>
                       <th className="px-4 py-3 font-semibold text-slate-600">Ward</th>
-                      <th className="px-4 py-3 font-semibold text-slate-600">Channel</th>
                       <th className="px-4 py-3 font-semibold text-slate-600">Request</th>
                       <th className="px-4 py-3 font-semibold text-slate-600">Sector</th>
                       <th className="px-4 py-3 font-semibold text-slate-600">Status</th>
-                      <th className="px-4 py-3 font-semibold text-slate-600">Date</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
@@ -449,11 +384,6 @@ function Reports() {
                         <tr key={s.id} className="transition-colors hover:bg-slate-50">
                           <td className="px-4 py-3 font-mono text-xs text-slate-500">{s.id}</td>
                           <td className="px-4 py-3 text-slate-700">{s.ward}</td>
-                          <td className="px-4 py-3">
-                            <span className="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-600">
-                              {s.channel}
-                            </span>
-                          </td>
                           <td className="max-w-xs truncate px-4 py-3 text-slate-500">{s.citizenInput}</td>
                           <td className="px-4 py-3">
                             <span className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-0.5 text-xs font-medium text-emerald-700">
@@ -466,7 +396,6 @@ function Reports() {
                               {s.status}
                             </span>
                           </td>
-                          <td className="px-4 py-3 text-slate-500">{s.submittedAt}</td>
                         </tr>
                       );
                     })}
